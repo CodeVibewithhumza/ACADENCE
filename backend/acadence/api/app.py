@@ -248,6 +248,81 @@ def compare_all_profiles():
     return results
 
 
+@app.get("/api/diagnostics")
+def get_diagnostics():
+    """Runs pre-solve counting and bottleneck analysis."""
+    from acadence.engine.diagnostics import run_diagnostics
+    report = run_diagnostics(state.snapshot)
+    return {
+        "is_feasible": report.is_feasible,
+        "summary": report.summary,
+        "bottlenecks": [
+            {
+                "category": b.category,
+                "entity_id": b.entity_id,
+                "entity_name": b.entity_name,
+                "demand": b.demand,
+                "supply": b.supply,
+                "deficit": b.deficit,
+                "message": b.message,
+            }
+            for b in report.bottlenecks
+        ],
+        "suggested_relaxations": [
+            {
+                "action_type": r.action_type,
+                "entity_id": r.entity_id,
+                "description": r.description,
+                "academic_impact": r.academic_impact,
+            }
+            for r in report.suggested_relaxations
+        ],
+    }
+
+
+@app.get("/api/export/csv")
+def export_csv(
+    group_id: Optional[str] = None,
+    faculty_id: Optional[str] = None,
+    room_id: Optional[str] = None,
+):
+    """Downloads timetable as CSV format."""
+    from fastapi.responses import Response
+    from acadence.export.exporter import export_to_csv
+    if not state.current_placements:
+        generate_timetable(GenerateRequest(profile_name="BALANCED"))
+    csv_text = export_to_csv(
+        snapshot=state.snapshot,
+        placements=state.current_placements,
+        filter_group_id=group_id,
+        filter_faculty_id=faculty_id,
+        filter_room_id=room_id,
+    )
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="acadence_timetable.csv"'},
+    )
+
+
+@app.get("/api/export/xlsx")
+def export_xlsx():
+    """Downloads timetable as styled multi-sheet Excel (.xlsx) workbook."""
+    from fastapi.responses import Response
+    from acadence.export.exporter import export_to_xlsx
+    if not state.current_placements:
+        generate_timetable(GenerateRequest(profile_name="BALANCED"))
+    xlsx_bytes = export_to_xlsx(
+        snapshot=state.snapshot,
+        placements=state.current_placements,
+    )
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="acadence_timetable.xlsx"'},
+    )
+
+
 # Mount production web dashboard build if present
 import os
 from fastapi.staticfiles import StaticFiles

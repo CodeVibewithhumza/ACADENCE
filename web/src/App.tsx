@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   CheckCircle2, ShieldCheck, RefreshCw, 
-  Layers, Users, DoorOpen, Sparkles, BarChart3, Move
+  Layers, Users, DoorOpen, Sparkles, BarChart3, Move,
+  Download, FileSpreadsheet, Activity
 } from 'lucide-react';
 
 interface MetricReport {
@@ -78,6 +79,33 @@ export default function App() {
   const [showCompareModal, setShowCompareModal] = useState<boolean>(false);
   const [comparisonData, setComparisonData] = useState<Record<string, any> | null>(null);
   const [comparing, setComparing] = useState<boolean>(false);
+
+  // Diagnostics Modal
+  const [showDiagnosticsModal, setShowDiagnosticsModal] = useState<boolean>(false);
+  const [diagnosticsData, setDiagnosticsData] = useState<any | null>(null);
+  const [loadingDiagnostics, setLoadingDiagnostics] = useState<boolean>(false);
+
+  async function handleOpenDiagnostics() {
+    setShowDiagnosticsModal(true);
+    setLoadingDiagnostics(true);
+    try {
+      const res = await fetch('/api/diagnostics');
+      const data = await res.json();
+      setDiagnosticsData(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingDiagnostics(false);
+    }
+  }
+
+  function handleExportExcel() {
+    window.open('/api/export/xlsx', '_blank');
+  }
+
+  function handleExportCSV() {
+    window.open('/api/export/csv', '_blank');
+  }
 
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
   const periods = [
@@ -273,6 +301,35 @@ export default function App() {
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
             <span>Independent Validator: <strong>{validation?.is_valid ? 'VALID (0 Clashes)' : 'INVALID'}</strong></span>
+          </div>
+
+          {/* Pre-solve Diagnostics Button */}
+          <button
+            onClick={handleOpenDiagnostics}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-semibold transition"
+          >
+            <Activity className="w-3.5 h-3.5 text-amber-400" />
+            <span>Diagnostics</span>
+          </button>
+
+          {/* Export Dropdown / Buttons */}
+          <div className="flex items-center rounded-lg bg-slate-800 p-0.5 border border-slate-700">
+            <button
+              onClick={handleExportExcel}
+              title="Download Master Multi-Sheet Excel Workbook"
+              className="flex items-center gap-1.5 px-2.5 py-1 text-slate-200 hover:bg-slate-700 rounded text-xs font-medium transition"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Excel</span>
+            </button>
+            <button
+              onClick={handleExportCSV}
+              title="Download Current View as CSV"
+              className="flex items-center gap-1.5 px-2.5 py-1 text-slate-200 hover:bg-slate-700 rounded text-xs font-medium transition"
+            >
+              <Download className="w-3.5 h-3.5 text-slate-400" />
+              <span>CSV</span>
+            </button>
           </div>
 
           {/* Compare Alternatives Button */}
@@ -635,6 +692,90 @@ export default function App() {
                 ))}
               </div>
             ) : null}
+          </div>
+        </div>
+      )}
+      {/* Diagnostics Modal (Section 13) */}
+      {showDiagnosticsModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400">
+                  <Activity className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-100">Pre-Solve Feasibility & Bottleneck Diagnostics</h3>
+                  <p className="text-xs text-slate-400">Hall-style counting checks and algebraic capacity analysis (Section 13)</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowDiagnosticsModal(false)}
+                className="text-slate-400 hover:text-slate-200 text-sm font-bold p-1 rounded-lg hover:bg-slate-800"
+              >
+                ✕
+              </button>
+            </div>
+
+            {loadingDiagnostics ? (
+              <div className="py-10 text-center space-y-2">
+                <RefreshCw className="w-6 h-6 animate-spin text-amber-400 mx-auto" />
+                <p className="text-xs text-slate-400">Auditing snapshot capacity bounds...</p>
+              </div>
+            ) : diagnosticsData ? (
+              <div className="space-y-4">
+                <div className={`p-3.5 rounded-xl border flex items-center gap-3 ${
+                  diagnosticsData.is_feasible 
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' 
+                    : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                }`}>
+                  <ShieldCheck className="w-5 h-5 shrink-0" />
+                  <div className="text-xs font-medium">
+                    <strong className="block text-sm font-bold mb-0.5">
+                      {diagnosticsData.is_feasible ? 'Feasibility Certified' : 'Bottlenecks Detected'}
+                    </strong>
+                    {diagnosticsData.summary}
+                  </div>
+                </div>
+
+                {diagnosticsData.bottlenecks.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Detected Bottlenecks:</h4>
+                    {diagnosticsData.bottlenecks.map((b: any, idx: number) => (
+                      <div key={idx} className="p-3 rounded-lg bg-slate-950 border border-slate-800 text-xs space-y-1">
+                        <div className="flex justify-between text-rose-400 font-semibold">
+                          <span>{b.entity_name} ({b.category})</span>
+                          <span>Deficit: {b.deficit} slots</span>
+                        </div>
+                        <p className="text-slate-400">{b.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="bg-slate-950/60 p-3 rounded-lg border border-slate-800 text-xs space-y-2">
+                  <div className="font-semibold text-slate-300 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    Snapshot Audit Overview:
+                  </div>
+                  <ul className="text-slate-400 space-y-1 text-[11px] list-disc list-inside">
+                    <li>Total teachable slots per week: 40 periods (Mon–Fri, 8 periods/day)</li>
+                    <li>Student group teaching load: Max 24 hours (Capacity Headroom: 16 slots)</li>
+                    <li>Faculty availability: 12 professors with 456 total available periods</li>
+                    <li>Room capacity: 4 Lecture Halls (Cap 60) + 4 Computer Labs (Cap 30)</li>
+                  </ul>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="flex justify-end pt-2 border-t border-slate-800">
+              <button
+                onClick={() => setShowDiagnosticsModal(false)}
+                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

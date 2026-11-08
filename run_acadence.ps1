@@ -9,3 +9,4 @@ Write-Host "Serving Web UI & API at: http://127.0.0.1:8000" -ForegroundColor Yel
 Write-Host "API Documentation at:    http://127.0.0.1:8000/docs" -ForegroundColor Yellow
 
 py -3.13 -m uvicorn acadence.api.app:app --host 127.0.0.1 --port 8000
+

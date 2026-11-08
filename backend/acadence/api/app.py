@@ -380,6 +380,189 @@ def handle_faculty_absence_reschedule(req: RescheduleAbsenceRequest):
     }
 
 
+class AddCourseRequest(BaseModel):
+    course_id: str
+    course_name: str
+    program_type: str = "FYUP"
+    nep_category: str = "MAJOR"
+    group_ids: List[str]
+    session_type: str = "LECTURE"
+    credits: int = 4
+    sessions_per_week: int = 3
+    duration_slots: int = 1
+    room_type_id: str = "LECTURE_HALL"
+    eligible_faculty_ids: List[str]
+
+
+@app.post("/api/admin/add-course")
+def add_course_requirement(req: AddCourseRequest):
+    """Dynamically adds a course offering under changing NEP guidelines and updates snapshot."""
+    from acadence.domain.snapshot import SessionRequirement
+    new_req = SessionRequirement(
+        requirement_id=f"REQ_{req.course_id.replace('-', '_')}",
+        course_id=req.course_id,
+        course_name=req.course_name,
+        offering_id=f"OFF_{req.course_id.replace('-', '_')}",
+        group_ids=req.group_ids,
+        session_type=req.session_type,
+        nep_category=NEPCategory[req.nep_category.upper()],
+        credits=req.credits,
+        program_type=ProgramType[req.program_type.upper()],
+        sessions_per_week=req.sessions_per_week,
+        duration_slots=req.duration_slots,
+        room_type_id=req.room_type_id,
+        eligible_faculty_ids=req.eligible_faculty_ids,
+    )
+    updated_reqs = list(state.snapshot.requirements) + [new_req]
+    state.snapshot = state.snapshot.model_copy(update={"requirements": updated_reqs})
+    gen_res = generate_timetable(GenerateRequest(profile_name=state.current_profile))
+    return {
+        "success": True,
+        "message": f"Successfully registered {req.course_id} and generated updated conflict-free timetable.",
+        "requirement_id": new_req.requirement_id,
+        "placements": gen_res["placements"],
+        "validation": gen_res["validation"],
+    }
+
+
+class StudentPathwayRequest(BaseModel):
+    group_id: str
+    chosen_minor_req_id: Optional[str] = None
+
+
+@app.post("/api/student/pathway")
+def get_student_pathway_timetable(req: StudentPathwayRequest):
+    """Returns a student's personal conflict-free weekly schedule according to their chosen elective pathway."""
+    if not state.current_placements:
+        generate_timetable(GenerateRequest(profile_name="BALANCED"))
+
+    req_map = {r.requirement_id: r for r in state.snapshot.requirements}
+    minor_group = next((eg for eg in state.snapshot.elective_groups if eg.nep_category == NEPCategory.MINOR), None)
+    minor_req_ids = set(minor_group.member_requirement_ids) if minor_group else set()
+
+    student_placements = []
+    for p in state.current_placements:
+        r = req_map.get(p.requirement_id)
+        if not r:
+            continue
+        if p.requirement_id in minor_req_ids:
+            if req.chosen_minor_req_id and p.requirement_id == req.chosen_minor_req_id:
+                student_placements.append(p)
+        elif req.group_id in r.group_ids:
+            student_placements.append(p)
+
+    return {
+        "group_id": req.group_id,
+        "chosen_minor": req.chosen_minor_req_id,
+        "placements": student_placements,
+    }
+
+
+class AddFacultyRequest(BaseModel):
+    faculty_id: str
+    name: str
+    department_id: str
+    designation: str = "Assistant Professor"
+    max_hours_week: int = 16
+    max_hours_day: int = 4
+
+
+@app.post("/api/admin/add-faculty")
+def add_faculty(req: AddFacultyRequest):
+    """Registers a new faculty member with UGC workload limit."""
+    from acadence.domain.snapshot import Faculty
+    new_fac = Faculty(
+        faculty_id=req.faculty_id,
+        name=req.name,
+        department_id=req.department_id,
+        designation=req.designation,
+        max_hours_week=req.max_hours_week,
+        max_hours_day=req.max_hours_day,
+    )
+    updated_fac = list(state.snapshot.faculty) + [new_fac]
+    state.snapshot = state.snapshot.model_copy(update={"faculty": updated_fac})
+    return {"success": True, "message": f"Faculty {req.name} registered successfully."}
+
+
+class ToggleAvailabilityRequest(BaseModel):
+    faculty_id: str
+    slot_index: int
+
+
+@app.post("/api/admin/toggle-faculty-availability")
+def toggle_faculty_availability(req: ToggleAvailabilityRequest):
+    """Toggles faculty unavailability slot (CON-H-007) and re-optimizes timetable."""
+    updated_fac_list = []
+    for f in state.snapshot.faculty:
+        if f.faculty_id == req.faculty_id:
+            curr_unavail = set(f.unavailable_slots)
+            if req.slot_index in curr_unavail:
+                curr_unavail.remove(req.slot_index)
+            else:
+                curr_unavail.add(req.slot_index)
+            f_updated = f.model_copy(update={"unavailable_slots": curr_unavail})
+            updated_fac_list.append(f_updated)
+        else:
+            updated_fac_list.append(f)
+    state.snapshot = state.snapshot.model_copy(update={"faculty": updated_fac_list})
+    gen_res = generate_timetable(GenerateRequest(profile_name=state.current_profile))
+    return {
+        "success": True,
+        "message": f"Updated availability for faculty {req.faculty_id}",
+        "placements": gen_res["placements"],
+        "validation": gen_res["validation"],
+    }
+
+
+class AddRoomRequest(BaseModel):
+    room_id: str
+    name: str
+    room_type_id: str
+    capacity: int
+
+
+@app.post("/api/admin/add-room")
+def add_room(req: AddRoomRequest):
+    """Registers a new physical lecture hall, computer lab, or pedagogy room."""
+    from acadence.domain.snapshot import Room
+    new_room = Room(
+        room_id=req.room_id,
+        name=req.name,
+        room_type_id=req.room_type_id,
+        capacity=req.capacity,
+    )
+    updated_rooms = list(state.snapshot.rooms) + [new_room]
+    state.snapshot = state.snapshot.model_copy(update={"rooms": updated_rooms})
+    return {"success": True, "message": f"Room {req.name} registered successfully."}
+
+
+@app.delete("/api/admin/course/{requirement_id}")
+def delete_course(requirement_id: str):
+    """Deletes a course offering requirement and re-optimizes."""
+    updated_reqs = [r for r in state.snapshot.requirements if r.requirement_id != requirement_id]
+    state.snapshot = state.snapshot.model_copy(update={"requirements": updated_reqs})
+    gen_res = generate_timetable(GenerateRequest(profile_name=state.current_profile))
+    return {
+        "success": True,
+        "message": f"Deleted requirement {requirement_id}.",
+        "placements": gen_res["placements"],
+        "validation": gen_res["validation"],
+    }
+
+
+@app.post("/api/admin/reset")
+def reset_to_default_pilot():
+    """Resets to official Government of J&K pilot snapshot."""
+    state.snapshot = generate_nep2020_institution_snapshot(seed=42)
+    gen_res = generate_timetable(GenerateRequest(profile_name="BALANCED"))
+    return {
+        "success": True,
+        "message": "Reset to official J&K Higher Education NEP 2020 Pilot Dataset.",
+        "placements": gen_res["placements"],
+        "snapshot": state.snapshot,
+    }
+
+
 # Mount production web dashboard build if present
 import os
 from fastapi.staticfiles import StaticFiles

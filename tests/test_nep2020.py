@@ -75,3 +75,4 @@ def test_nep2020_solve_and_parallel_minor_alignment():
 
         assigned_rooms = {eco_p.assigned_room_id, mth_p.assigned_room_id, psy_p.assigned_room_id}
         assert len(assigned_rooms) == 3, f"Parallel minors must occupy 3 distinct rooms, got: {assigned_rooms}"
+

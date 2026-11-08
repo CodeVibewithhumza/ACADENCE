@@ -10,6 +10,11 @@ from acadence.domain.snapshot import (
     Placement,
     ConfigSnapshot,
 )
+from acadence.domain.objectives import (
+    ObjectiveProfile,
+    MetricReport,
+    SEEDED_PROFILES,
+)
 
 __all__ = [
     "Hardness",
@@ -25,5 +30,8 @@ __all__ = [
     "SessionRequirement",
     "Placement",
     "ConfigSnapshot",
+    "ObjectiveProfile",
+    "MetricReport",
+    "SEEDED_PROFILES",
 ]
 

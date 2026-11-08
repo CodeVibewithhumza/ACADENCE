@@ -9,7 +9,9 @@ from ortools.sat.python import cp_model
 
 from acadence.domain.enums import SolverStatus
 from acadence.domain.snapshot import ConfigSnapshot, Placement
+from acadence.domain.objectives import ObjectiveProfile, MetricReport
 from acadence.engine.compiler import compile_snapshot, CompiledModelInput, SessionInstance
+from acadence.engine.objectives import attach_soft_constraints
 
 
 @dataclass
@@ -17,6 +19,7 @@ class SolverParameters:
     time_limit_seconds: float = 30.0
     random_seed: int = 42
     num_search_workers: int = 1  # 1 for deterministic reproducibility per ADR-012
+    profile: Optional[ObjectiveProfile] = None
 
 
 @dataclass
@@ -26,6 +29,7 @@ class SolveResult:
     solve_time_seconds: float = 0.0
     wall_time_seconds: float = 0.0
     status_detail: str = ""
+    metrics: Optional[MetricReport] = None
 
 
 def solve(
@@ -195,7 +199,19 @@ def solve(
         if len(group_intervals) > 1:
             model.AddNoOverlap(group_intervals)
 
-    # 6. Execute solve
+    # 6. Attach Soft Constraints and Objectives if profile provided
+    if params.profile:
+        attach_soft_constraints(
+            model=model,
+            snapshot=snapshot,
+            compiled=compiled,
+            profile=params.profile,
+            st=st,
+            a=a,
+            q=q,
+        )
+
+    # 7. Execute solve
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = params.time_limit_seconds
     solver.parameters.random_seed = params.random_seed
@@ -262,11 +278,16 @@ def solve(
             )
         )
 
+    # 8. Compute quality metrics using independent evaluator
+    from acadence.validator.metrics import evaluate_metrics
+    metrics = evaluate_metrics(snapshot, placements, params.profile)
+
     return SolveResult(
         status=status,
         placements=placements,
         solve_time_seconds=solve_duration,
         wall_time_seconds=total_wall_time,
         status_detail=f"Solved successfully with status {status.value}.",
+        metrics=metrics,
     )
 

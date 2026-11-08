@@ -2,6 +2,7 @@
 """
 from collections import defaultdict
 from acadence.domain.enums import SolverStatus
+from acadence.domain.objectives import SEEDED_PROFILES
 from acadence.domain.snapshot import ConfigSnapshot
 from acadence.engine.solver import solve, SolverParameters
 from acadence.validator.validator import validate
@@ -53,9 +54,23 @@ if __name__ == "__main__":
     snapshot = generate_tier_s_snapshot(seed=42)
     print(f"Snapshot content hash: {snapshot.compute_hash()}")
 
-    print("\nRunning Google OR-Tools CP-SAT Optimization Engine...")
-    result = solve(snapshot, SolverParameters(time_limit_seconds=15.0, random_seed=42))
+    print("\nRunning Google OR-Tools CP-SAT Optimization Engine (BALANCED profile)...")
+    result = solve(
+        snapshot,
+        SolverParameters(
+            time_limit_seconds=15.0,
+            random_seed=42,
+            profile=SEEDED_PROFILES["BALANCED"],
+        ),
+    )
     print(f"Solver Status: {result.status.value} (in {result.solve_time_seconds:.2f}s)")
+    if result.metrics:
+        print(f"Quality Metrics (Lower is better):")
+        print(f"  - Session Distribution Excess (CON-S-008): {result.metrics.distribution_excess} (0 is perfect spread)")
+        print(f"  - Faculty Idle Gaps (CON-S-003): {result.metrics.faculty_gaps} slots")
+        print(f"  - Student Idle Gaps (CON-S-004): {result.metrics.student_gaps} slots")
+        print(f"  - Room Capacity Waste (CON-S-005): {result.metrics.room_capacity_waste} empty seats")
+        print(f"  - Composite Objective Score: {result.metrics.composite_score}")
 
     print("\nRunning Independent Validator (shares 0 solver code)...")
     report = validate(snapshot, result.placements)
@@ -63,3 +78,4 @@ if __name__ == "__main__":
 
     if report.is_valid:
         print_timetable_grid(snapshot, result.placements)
+

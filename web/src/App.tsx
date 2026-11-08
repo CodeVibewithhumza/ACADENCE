@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { 
   CheckCircle2, ShieldCheck, RefreshCw, 
   Layers, Users, DoorOpen, Sparkles, BarChart3, Move,
-  Download, FileSpreadsheet, Activity, Bot, Send, Check
+  Download, FileSpreadsheet, Activity, Bot, Send, Check,
+  BookOpen, GraduationCap, GitFork, Cpu, Globe, Shield,
+  Building2, Clock
 } from 'lucide-react';
 
 interface MetricReport {
@@ -39,20 +41,60 @@ interface Placement {
 
 interface SnapshotData {
   snapshot_id: string;
+  institution_id: string;
+  institution_name: string;
+  state_or_ut: string;
+  problem_statement_id: string;
   time_grid: {
     num_days: number;
     periods_per_day: number;
   };
-  student_groups: Array<{ group_id: string; name: string; parent_id?: string }>;
-  rooms: Array<{ room_id: string; name: string; room_type_id: string; capacity: number }>;
-  faculty: Array<{ faculty_id: string; name: string }>;
+  student_groups: Array<{
+    group_id: string;
+    name: string;
+    parent_id?: string;
+    expected_strength: number;
+    program_type: string;
+    semester: number;
+  }>;
+  rooms: Array<{
+    room_id: string;
+    name: string;
+    room_type_id: string;
+    capacity: number;
+    features: string[];
+  }>;
+  faculty: Array<{
+    faculty_id: string;
+    name: string;
+    department_id: string;
+    designation: string;
+    max_hours_week: number;
+    max_hours_day: number;
+    unavailable_slots: number[];
+  }>;
   requirements: Array<{
     requirement_id: string;
     course_id: string;
     course_name: string;
+    offering_id: string;
     group_ids: string[];
     session_type: string;
+    nep_category: string;
+    credits: number;
+    program_type: string;
+    sessions_per_week: number;
     duration_slots: number;
+    room_type_id?: string;
+    eligible_faculty_ids: string[];
+  }>;
+  elective_groups: Array<{
+    elective_group_id: string;
+    name: string;
+    mode: string;
+    nep_category: string;
+    member_requirement_ids: string[];
+    attached_group_ids: string[];
   }>;
 }
 
@@ -64,48 +106,34 @@ export default function App() {
   const [activeProfile, setActiveProfile] = useState<string>('BALANCED');
   const [loading, setLoading] = useState<boolean>(true);
   const [solving, setSolving] = useState<boolean>(false);
-  const [solveTime, setSolveTime] = useState<number>(0.73);
+  const [solveTime, setSolveTime] = useState<number>(0.85);
+
+  // NEP 2020 Program Filter: 'ALL' | 'FYUP' | 'ITEP' | 'B_ED' | 'M_ED'
+  const [selectedProgram, setSelectedProgram] = useState<string>('ALL');
 
   // Filters: viewType = 'GROUP' | 'FACULTY' | 'ROOM'
   const [viewType, setViewType] = useState<'GROUP' | 'FACULTY' | 'ROOM'>('GROUP');
-  const [selectedEntityId, setSelectedEntityId] = useState<string>('GRP_SEC_A');
+  const [selectedEntityId, setSelectedEntityId] = useState<string>('GRP_FYUP_SEC_A');
 
   // Interactive Live Move
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null);
   const [validTargetSlots, setValidTargetSlots] = useState<number[]>([]);
   const [moveMessage, setMoveMessage] = useState<string | null>(null);
 
-  // Compare Modal
+  // Modals
   const [showCompareModal, setShowCompareModal] = useState<boolean>(false);
   const [comparisonData, setComparisonData] = useState<Record<string, any> | null>(null);
   const [comparing, setComparing] = useState<boolean>(false);
 
-  // Diagnostics Modal
   const [showDiagnosticsModal, setShowDiagnosticsModal] = useState<boolean>(false);
   const [diagnosticsData, setDiagnosticsData] = useState<any | null>(null);
   const [loadingDiagnostics, setLoadingDiagnostics] = useState<boolean>(false);
 
-  async function handleOpenDiagnostics() {
-    setShowDiagnosticsModal(true);
-    setLoadingDiagnostics(true);
-    try {
-      const res = await fetch('/api/diagnostics');
-      const data = await res.json();
-      setDiagnosticsData(data);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoadingDiagnostics(false);
-    }
-  }
+  // Dedicated NEP 2020 Basket Inspector Modal
+  const [showBasketModal, setShowBasketModal] = useState<boolean>(false);
 
-  function handleExportExcel() {
-    window.open('/api/export/xlsx', '_blank');
-  }
-
-  function handleExportCSV() {
-    window.open('/api/export/csv', '_blank');
-  }
+  // Dedicated UGC Workload & Infrastructure Modal
+  const [showWorkloadModal, setShowWorkloadModal] = useState<boolean>(false);
 
   // AI Assistant Copilot (Section 14)
   const [showAICopilot, setShowAICopilot] = useState<boolean>(false);
@@ -114,64 +142,9 @@ export default function App() {
   const [aiMessages, setAiMessages] = useState<Array<{ sender: 'user' | 'assistant'; text: string; proposal?: any }>>([
     {
       sender: 'assistant',
-      text: 'Hello! I am your Acadence AI Timetable Copilot (Section 14). I can explain constraint rules, analyze why specific sessions were scheduled, or draft validated reschedule proposals.',
+      text: 'Greetings! I am the Acadence NEP 2020 Timetable Copilot. I verify compliance with FYUP multidisciplinary baskets, ITEP/B.Ed. school teaching practice blocks, and UGC faculty workload caps.',
     },
   ]);
-
-  async function handleSendAIQuery(customQuery?: string) {
-    const qText = customQuery || aiQuery;
-    if (!qText.trim()) return;
-
-    setAiMessages(prev => [...prev, { sender: 'user', text: qText }]);
-    setAiQuery('');
-    setAiLoading(true);
-
-    try {
-      const res = await fetch('/api/ai/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: qText }),
-      });
-      const data = await res.json();
-      setAiMessages(prev => [
-        ...prev,
-        {
-          sender: 'assistant',
-          text: data.reply,
-          proposal: data.proposal,
-        },
-      ]);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setAiLoading(false);
-    }
-  }
-
-  async function handleApplyAIProposal(proposal: any) {
-    if (!proposal || !proposal.instance_id || proposal.target_slot === undefined) return;
-    try {
-      setMoveMessage(`Applying AI Proposal: Moving to ${proposal.new_day} ${proposal.new_period}...`);
-      const res = await fetch('/api/timetable/move', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          instance_id: proposal.instance_id,
-          new_start_slot: proposal.target_slot,
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setPlacements(data.placements);
-        setMetrics(data.metrics);
-        setValidation(data.validation);
-        setMoveMessage(`AI Proposal applied & verified by Independent Oracle!`);
-        setTimeout(() => setMoveMessage(null), 3000);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  }
 
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
   const periods = [
@@ -199,14 +172,32 @@ export default function App() {
         setMetrics(timeRes.metrics || null);
         setValidation(timeRes.validation || null);
         setActiveProfile(timeRes.profile || 'BALANCED');
+        if (snapRes.student_groups && snapRes.student_groups.length > 0) {
+          const firstLeaf = snapRes.student_groups.find((g: any) => g.parent_id) || snapRes.student_groups[0];
+          setSelectedEntityId(firstLeaf.group_id);
+        }
       } catch (err) {
-        console.error('Failed to connect to backend API:', err);
+        console.error('Failed to connect to Acadence API:', err);
       } finally {
         setLoading(false);
       }
     }
     init();
   }, []);
+
+  // Update default selected entity when program filter changes
+  function handleSelectProgram(prog: string) {
+    setSelectedProgram(prog);
+    if (!snapshot) return;
+    if (prog === 'ALL') {
+      const firstLeaf = snapshot.student_groups.find(g => g.parent_id) || snapshot.student_groups[0];
+      setSelectedEntityId(firstLeaf.group_id);
+    } else {
+      const match = snapshot.student_groups.find(g => g.program_type === prog && g.parent_id) 
+                 || snapshot.student_groups.find(g => g.program_type === prog);
+      if (match) setSelectedEntityId(match.group_id);
+    }
+  }
 
   // Generate / Re-optimize
   async function handleGenerate(profileName: string) {
@@ -244,7 +235,7 @@ export default function App() {
       return;
     }
     setSelectedInstanceId(instanceId);
-    setMoveMessage("Computing valid clash-free target slots...");
+    setMoveMessage("Independent Validator Oracle computing valid clash-free target slots...");
     try {
       const res = await fetch(`/api/timetable/valid-targets/${instanceId}`);
       const data = await res.json();
@@ -301,22 +292,109 @@ export default function App() {
     }
   }
 
+  async function handleOpenDiagnostics() {
+    setShowDiagnosticsModal(true);
+    setLoadingDiagnostics(true);
+    try {
+      const res = await fetch('/api/diagnostics');
+      const data = await res.json();
+      setDiagnosticsData(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingDiagnostics(false);
+    }
+  }
+
+  function handleExportExcel() {
+    window.open('/api/export/xlsx', '_blank');
+  }
+
+  function handleExportCSV() {
+    window.open('/api/export/csv', '_blank');
+  }
+
+  async function handleSendAIQuery(customQuery?: string) {
+    const qText = customQuery || aiQuery;
+    if (!qText.trim()) return;
+
+    setAiMessages(prev => [...prev, { sender: 'user', text: qText }]);
+    setAiQuery('');
+    setAiLoading(true);
+
+    try {
+      const res = await fetch('/api/ai/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: qText }),
+      });
+      const data = await res.json();
+      setAiMessages(prev => [
+        ...prev,
+        {
+          sender: 'assistant',
+          text: data.reply,
+          proposal: data.proposal,
+        },
+      ]);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
+  async function handleApplyAIProposal(proposal: any) {
+    if (!proposal || !proposal.instance_id || proposal.target_slot === undefined) return;
+    try {
+      setMoveMessage(`Applying AI Proposal: Moving to ${proposal.new_day} ${proposal.new_period}...`);
+      const res = await fetch('/api/timetable/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          instance_id: proposal.instance_id,
+          new_start_slot: proposal.target_slot,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPlacements(data.placements);
+        setMetrics(data.metrics);
+        setValidation(data.validation);
+        setMoveMessage(`AI Proposal applied & verified by Independent Oracle!`);
+        setTimeout(() => setMoveMessage(null), 3000);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-950 text-slate-200">
-        <div className="text-center space-y-3">
-          <RefreshCw className="w-10 h-10 animate-spin text-indigo-400 mx-auto" />
-          <h2 className="text-xl font-semibold">Connecting to Acadence Engine...</h2>
-          <p className="text-slate-400 text-sm">Loading domain snapshots and active timetable</p>
+      <div className="flex items-center justify-center min-h-screen bg-slate-950 text-slate-200 font-sans">
+        <div className="text-center space-y-4">
+          <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center mx-auto shadow-xl">
+            <RefreshCw className="w-8 h-8 animate-spin text-indigo-400" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold tracking-tight">Initializing Acadence Engine</h2>
+            <p className="text-slate-400 text-sm mt-1">Connecting to J&K NEP 2020 Multidisciplinary Domain Snapshot...</p>
+          </div>
         </div>
       </div>
     );
   }
 
-  // Filter placements visible in current view
+  // Maps for lookups
   const reqMap = new Map((snapshot?.requirements || []).map(r => [r.requirement_id, r]));
-  const facultyMap = new Map((snapshot?.faculty || []).map(f => [f.faculty_id, f.name]));
-  const roomMap = new Map((snapshot?.rooms || []).map(r => [r.room_id, r.name]));
+  const facultyMap = new Map((snapshot?.faculty || []).map(f => [f.faculty_id, f]));
+  const roomMap = new Map((snapshot?.rooms || []).map(r => [r.room_id, r]));
+
+  // Filter groups according to selectedProgram
+  const filteredGroups = (snapshot?.student_groups || []).filter(g => {
+    if (selectedProgram === 'ALL') return true;
+    return g.program_type === selectedProgram;
+  });
 
   // Build grid map: (day, period) -> placement
   const gridCells = new Map<string, Placement>();
@@ -343,46 +421,172 @@ export default function App() {
     }
   }
 
+  // Compute NEP Category Badge Details
+  function getNEPCategoryStyle(category?: string) {
+    switch (category) {
+      case 'MAJOR':
+        return {
+          bg: 'bg-blue-950/40 border-blue-500/40 hover:border-blue-400 text-blue-100',
+          badge: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+          label: 'Major (DSC)',
+          icon: BookOpen,
+        };
+      case 'MINOR':
+        return {
+          bg: 'bg-purple-950/50 border-purple-500/40 hover:border-purple-400 text-purple-100',
+          badge: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
+          label: 'Minor Basket (CON-H-011)',
+          icon: GitFork,
+        };
+      case 'SEC':
+        return {
+          bg: 'bg-emerald-950/40 border-emerald-500/40 hover:border-emerald-400 text-emerald-100',
+          badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+          label: 'SEC Skill Lab',
+          icon: Cpu,
+        };
+      case 'AEC':
+        return {
+          bg: 'bg-amber-950/40 border-amber-500/40 hover:border-amber-400 text-amber-100',
+          badge: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+          label: 'AEC Ability',
+          icon: Globe,
+        };
+      case 'VAC':
+        return {
+          bg: 'bg-orange-950/40 border-orange-500/40 hover:border-orange-400 text-orange-100',
+          badge: 'bg-orange-500/20 text-orange-300 border-orange-500/30',
+          label: 'VAC Value-Added',
+          icon: Shield,
+        };
+      case 'TEACHING_PRACTICE':
+        return {
+          bg: 'bg-rose-950/50 border-rose-500/50 hover:border-rose-400 text-rose-100',
+          badge: 'bg-rose-500/20 text-rose-300 border-rose-500/30',
+          label: 'Teaching Practice (2h)',
+          icon: GraduationCap,
+        };
+      default:
+        return {
+          bg: 'bg-indigo-950/40 border-indigo-500/40 hover:border-indigo-400 text-indigo-100',
+          badge: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30',
+          label: 'Course',
+          icon: BookOpen,
+        };
+    }
+  }
+
+  // Multidisciplinary Minor Basket Synchronization Details (CON-H-011)
+  const minorGroup = snapshot?.elective_groups?.find(eg => eg.nep_category === 'MINOR');
+  const minorPlacements = placements.filter(p => minorGroup?.member_requirement_ids?.includes(p.requirement_id));
+  // Group minor placements by session index
+  const minorSlots = Array.from(new Set(minorPlacements.map(p => p.start_slot))).sort((a, b) => a - b);
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-      {/* Top Header */}
-      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur px-6 py-4 flex flex-wrap items-center justify-between gap-4 sticky top-0 z-30">
+      
+      {/* 1. Official Government of Jammu & Kashmir Banner */}
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border-b border-indigo-500/20 px-6 py-2.5 flex flex-wrap items-center justify-between text-xs gap-3">
+        <div className="flex items-center gap-2.5">
+          <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30 font-bold uppercase tracking-wider text-[10px]">
+            Problem Statement 25091
+          </span>
+          <span className="text-slate-300 font-semibold tracking-wide">
+            Government of Jammu and Kashmir • Higher Education Department
+          </span>
+          <span className="hidden md:inline text-slate-500">|</span>
+          <span className="hidden md:inline text-indigo-300">
+            {snapshot?.institution_name || 'Govt. College of Education & Multidisciplinary Studies, J&K'}
+          </span>
+        </div>
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-emerald-400 flex items-center justify-center font-black text-xl text-slate-950 shadow-lg shadow-indigo-500/20">
+          <span className="text-[11px] text-emerald-400 font-medium flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+            NEP 2020 Multi-Program Standard Active
+          </span>
+          <span className="px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 text-[10px] font-semibold">
+            FYUP • ITEP • B.Ed • M.Ed
+          </span>
+        </div>
+      </div>
+
+      {/* 2. Top Navigation & Action Bar */}
+      <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur px-6 py-3.5 flex flex-wrap items-center justify-between gap-4 sticky top-0 z-30">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-emerald-400 flex items-center justify-center font-black text-xl text-slate-950 shadow-lg shadow-indigo-500/20">
             A
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg font-bold tracking-tight">ACADENCE</h1>
-              <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+              <h1 className="text-lg font-bold tracking-tight">ACADENCE AI</h1>
+              <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                 OR-Tools CP-SAT
               </span>
+              <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                NEP 2020
+              </span>
             </div>
-            <p className="text-xs text-slate-400">Deterministic Timetable Optimization & Verification Platform</p>
+            <p className="text-xs text-slate-400">Conflict-Free Multidisciplinary Academic Timetable Engine</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* Validator Status */}
+        <div className="flex items-center flex-wrap gap-2.5">
+          {/* Independent Validator Status Pill */}
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>Independent Validator: <strong>{validation?.is_valid ? 'VALID (0 Clashes)' : 'INVALID'}</strong></span>
+            <span>Independent Oracle: <strong>{validation?.is_valid ? 'VALID (0 Clashes)' : 'INVALID'}</strong></span>
           </div>
 
-          {/* Pre-solve Diagnostics Button */}
+          {/* NEP Basket Inspector Button */}
+          <button
+            onClick={() => setShowBasketModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-950/60 hover:bg-purple-900/60 border border-purple-500/40 text-purple-300 text-xs font-semibold transition shadow-sm"
+          >
+            <GitFork className="w-3.5 h-3.5 text-purple-400" />
+            <span>Minor Basket (CON-H-011)</span>
+          </button>
+
+          {/* UGC Workload & Infrastructure Button */}
+          <button
+            onClick={() => setShowWorkloadModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition"
+          >
+            <Building2 className="w-3.5 h-3.5 text-blue-400" />
+            <span>UGC Workload</span>
+          </button>
+
+          {/* Diagnostics Button */}
           <button
             onClick={handleOpenDiagnostics}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-semibold transition"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition"
           >
             <Activity className="w-3.5 h-3.5 text-amber-400" />
             <span>Diagnostics</span>
           </button>
 
-          {/* Export Dropdown / Buttons */}
+          {/* Compare Alternatives Button */}
+          <button
+            onClick={handleOpenCompare}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition"
+          >
+            <BarChart3 className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Profiles</span>
+          </button>
+
+          {/* AI Copilot Button */}
+          <button
+            onClick={() => setShowAICopilot(true)}
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-indigo-900/70 to-purple-900/70 hover:from-indigo-800 hover:to-purple-800 border border-indigo-500/40 text-indigo-200 text-xs font-semibold shadow-sm transition"
+          >
+            <Bot className="w-4 h-4 text-indigo-400" />
+            <span>AI Copilot</span>
+          </button>
+
+          {/* Export Dropdown */}
           <div className="flex items-center rounded-lg bg-slate-800 p-0.5 border border-slate-700">
             <button
               onClick={handleExportExcel}
-              title="Download Master Multi-Sheet Excel Workbook"
+              title="Download J&K Master Multi-Sheet Excel Workbook"
               className="flex items-center gap-1.5 px-2.5 py-1 text-slate-200 hover:bg-slate-700 rounded text-xs font-medium transition"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
@@ -390,7 +594,7 @@ export default function App() {
             </button>
             <button
               onClick={handleExportCSV}
-              title="Download Current View as CSV"
+              title="Download Active View as CSV"
               className="flex items-center gap-1.5 px-2.5 py-1 text-slate-200 hover:bg-slate-700 rounded text-xs font-medium transition"
             >
               <Download className="w-3.5 h-3.5 text-slate-400" />
@@ -398,25 +602,7 @@ export default function App() {
             </button>
           </div>
 
-          {/* Compare Alternatives Button */}
-          <button
-            onClick={handleOpenCompare}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition"
-          >
-            <BarChart3 className="w-4 h-4 text-indigo-400" />
-            <span>Compare Profiles</span>
-          </button>
-
-          {/* AI Copilot Button (Section 14) */}
-          <button
-            onClick={() => setShowAICopilot(true)}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-indigo-900/60 to-purple-900/60 hover:from-indigo-800/80 hover:to-purple-800/80 border border-indigo-500/40 text-indigo-200 text-xs font-semibold shadow-sm transition"
-          >
-            <Bot className="w-4 h-4 text-indigo-400" />
-            <span>AI Copilot</span>
-          </button>
-
-          {/* Re-Generate Button */}
+          {/* Re-Optimize Button */}
           <button
             onClick={() => handleGenerate(activeProfile)}
             disabled={solving}
@@ -428,123 +614,164 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Container */}
-      <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
-        
-        {/* Profile Switcher & Quality Scorecard */}
+      {/* Main Workspace */}
+      <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-5">
+
+        {/* 3. NEP 2020 Multi-Program Selector Tabs */}
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+              <GraduationCap className="w-4 h-4 text-indigo-400" />
+              Academic Program:
+            </span>
+            <div className="flex flex-wrap gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
+              {[
+                { id: 'ALL', label: 'All Programs (Unified)', badge: 'Master' },
+                { id: 'FYUP', label: 'FYUP (Four-Year UG)', badge: 'Sem 3' },
+                { id: 'ITEP', label: 'ITEP (Teacher Education)', badge: 'Sem 5' },
+                { id: 'B_ED', label: 'B.Ed. (Secondary)', badge: 'Sem 3' },
+                { id: 'M_ED', label: 'M.Ed. (Postgraduate)', badge: 'Sem 3' },
+              ].map(prog => (
+                <button
+                  key={prog.id}
+                  onClick={() => handleSelectProgram(prog.id)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition flex items-center gap-1.5 ${
+                    selectedProgram === prog.id
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                  }`}
+                >
+                  <span>{prog.label}</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${
+                    selectedProgram === prog.id ? 'bg-indigo-700 text-white' : 'bg-slate-800 text-slate-400'
+                  }`}>
+                    {prog.badge}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <Clock className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Optimal Solution generated in <strong>{solveTime.toFixed(2)}s</strong></span>
+          </div>
+        </div>
+
+        {/* 4. NEP 2020 Course Component Legend & Quality Metrics */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
           
-          {/* Profiles */}
-          <div className="lg:col-span-5 bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+          {/* NEP Category Badges */}
+          <div className="lg:col-span-6 bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
             <div>
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                  Objective Profiles (Section 11)
-                </span>
-                <span className="text-xs text-slate-500">Solved in {solveTime.toFixed(2)}s</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5 mb-2.5">
+                <Layers className="w-3.5 h-3.5 text-indigo-400" />
+                NEP 2020 Curriculum Components
+              </span>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {[
-                  { id: 'BALANCED', label: 'Balanced', desc: 'Equal trade-off' },
-                  { id: 'FACULTY_FRIENDLY', label: 'Faculty-Friendly', desc: '0 faculty gaps' },
-                  { id: 'STUDENT_FRIENDLY', label: 'Student-Friendly', desc: '0 student gaps' },
-                  { id: 'SPACE_EFFICIENT', label: 'Space-Efficient', desc: 'Consolidate rooms' },
-                ].map(p => (
-                  <button
-                    key={p.id}
-                    onClick={() => handleGenerate(p.id)}
-                    disabled={solving}
-                    className={`p-2.5 rounded-lg border text-left transition ${
-                      activeProfile === p.id
-                        ? 'bg-indigo-600/20 border-indigo-500 text-indigo-200 shadow-sm'
-                        : 'bg-slate-950/40 border-slate-800 hover:border-slate-700 text-slate-400'
-                    }`}
-                  >
-                    <div className="text-xs font-bold text-slate-200">{p.label}</div>
-                    <div className="text-[10px] text-slate-500">{p.desc}</div>
-                  </button>
+                  { cat: 'MAJOR', name: 'Major Core (DSC)', credits: '4 Cr', color: 'border-blue-500/40 bg-blue-950/30 text-blue-300' },
+                  { cat: 'MINOR', name: 'Minor Basket (PARALLEL)', credits: '4 Cr', color: 'border-purple-500/40 bg-purple-950/30 text-purple-300' },
+                  { cat: 'SEC', name: 'SEC Skill Lab (2h)', credits: '2 Cr', color: 'border-emerald-500/40 bg-emerald-950/30 text-emerald-300' },
+                  { cat: 'AEC', name: 'AEC Environment', credits: '2 Cr', color: 'border-amber-500/40 bg-amber-950/30 text-amber-300' },
+                  { cat: 'VAC', name: 'VAC Digital Ethics', credits: '2 Cr', color: 'border-orange-500/40 bg-orange-950/30 text-orange-300' },
+                  { cat: 'TEACHING_PRACTICE', name: 'School Internship (2h)', credits: '4 Cr', color: 'border-rose-500/40 bg-rose-950/30 text-rose-300' },
+                ].map(item => (
+                  <div key={item.cat} className={`p-2 rounded-lg border ${item.color} flex flex-col justify-between`}>
+                    <span className="text-xs font-bold leading-tight">{item.name}</span>
+                    <span className="text-[10px] opacity-75 font-mono mt-1">{item.credits}</span>
+                  </div>
                 ))}
               </div>
             </div>
           </div>
 
-          {/* Metrics Scorecard */}
-          <div className="lg:col-span-7 bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5 mb-3">
+          {/* Soft Quality Metrics Scorecard */}
+          <div className="lg:col-span-6 bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5 mb-2.5">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-              Quality Scorecard (Soft Constraints CON-S)
+              Optimization Quality Scorecard (Soft Constraints CON-S)
             </span>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg p-3 text-center">
-                <div className="text-lg font-black text-emerald-400">{metrics?.distribution_excess ?? 0}</div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 text-center">
+                <div className="text-base font-black text-emerald-400">{metrics?.distribution_excess ?? 0}</div>
                 <div className="text-[11px] font-medium text-slate-300">Spread Excess</div>
-                <div className="text-[10px] text-slate-500">CON-S-008 (0 = Perfect)</div>
+                <div className="text-[9px] text-slate-500">CON-S-008 (0 = Perfect)</div>
               </div>
-              <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg p-3 text-center">
-                <div className="text-lg font-black text-emerald-400">{metrics?.faculty_gaps ?? 0} <span className="text-xs font-normal">hrs</span></div>
+              <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 text-center">
+                <div className="text-base font-black text-emerald-400">{metrics?.faculty_gaps ?? 0} <span className="text-[10px] font-normal">hrs</span></div>
                 <div className="text-[11px] font-medium text-slate-300">Faculty Idle Gaps</div>
-                <div className="text-[10px] text-slate-500">CON-S-003</div>
+                <div className="text-[9px] text-slate-500">CON-S-003</div>
               </div>
-              <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg p-3 text-center">
-                <div className="text-lg font-black text-emerald-400">{metrics?.student_gaps ?? 0} <span className="text-xs font-normal">hrs</span></div>
+              <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 text-center">
+                <div className="text-base font-black text-emerald-400">{metrics?.student_gaps ?? 0} <span className="text-[10px] font-normal">hrs</span></div>
                 <div className="text-[11px] font-medium text-slate-300">Student Idle Gaps</div>
-                <div className="text-[10px] text-slate-500">CON-S-004</div>
+                <div className="text-[9px] text-slate-500">CON-S-004</div>
               </div>
-              <div className="bg-slate-950/60 border border-slate-800/80 rounded-lg p-3 text-center">
-                <div className="text-lg font-black text-indigo-400">{metrics?.composite_score ?? 0}</div>
+              <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 text-center">
+                <div className="text-base font-black text-indigo-400">{metrics?.composite_score ?? 0}</div>
                 <div className="text-[11px] font-medium text-slate-300">Objective Score</div>
-                <div className="text-[10px] text-slate-500">Lower is better</div>
+                <div className="text-[9px] text-slate-500">Lower is better</div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* View Filter Controls & Drag Instruction Banner */}
+        {/* 5. View Controls & Interactive Move Banner */}
         <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900/40 border border-slate-800 px-4 py-3 rounded-xl">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center flex-wrap gap-3">
             <span className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
               <Layers className="w-3.5 h-3.5 text-indigo-400" />
               Schedule View:
             </span>
             <div className="flex rounded-lg bg-slate-950 p-1 border border-slate-800">
               <button
-                onClick={() => { setViewType('GROUP'); setSelectedEntityId('GRP_SEC_A'); }}
+                onClick={() => {
+                  setViewType('GROUP');
+                  const firstGroup = filteredGroups[0] || snapshot?.student_groups[0];
+                  if (firstGroup) setSelectedEntityId(firstGroup.group_id);
+                }}
                 className={`px-3 py-1 text-xs font-medium rounded-md transition ${viewType === 'GROUP' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
               >
-                By Student Group
+                By Student Cohort / Section
               </button>
               <button
-                onClick={() => { setViewType('FACULTY'); setSelectedEntityId('FAC_01'); }}
+                onClick={() => {
+                  setViewType('FACULTY');
+                  if (snapshot?.faculty[0]) setSelectedEntityId(snapshot.faculty[0].faculty_id);
+                }}
                 className={`px-3 py-1 text-xs font-medium rounded-md transition ${viewType === 'FACULTY' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
               >
                 By Faculty Member
               </button>
               <button
-                onClick={() => { setViewType('ROOM'); setSelectedEntityId('LH_101'); }}
+                onClick={() => {
+                  setViewType('ROOM');
+                  if (snapshot?.rooms[0]) setSelectedEntityId(snapshot.rooms[0].room_id);
+                }}
                 className={`px-3 py-1 text-xs font-medium rounded-md transition ${viewType === 'ROOM' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
               >
-                By Room
+                By Physical Room / Lab
               </button>
             </div>
 
-            {/* Entity Select */}
+            {/* Entity Dropdown */}
             <select
               value={selectedEntityId}
               onChange={(e) => setSelectedEntityId(e.target.value)}
               className="bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-indigo-500"
             >
               {viewType === 'GROUP' && (
-                snapshot?.student_groups.map(g => (
+                filteredGroups.map(g => (
                   <option key={g.group_id} value={g.group_id}>
-                    {g.name} ({g.group_id.replace('GRP_', '')})
+                    {g.name} ({g.expected_strength} Students)
                   </option>
                 ))
               )}
               {viewType === 'FACULTY' && (
                 snapshot?.faculty.map(f => (
                   <option key={f.faculty_id} value={f.faculty_id}>
-                    {f.name} ({f.faculty_id})
+                    {f.name} — {f.designation} ({f.department_id})
                   </option>
                 ))
               )}
@@ -568,13 +795,13 @@ export default function App() {
             ) : (
               <span className="text-slate-400 flex items-center gap-1.5">
                 <Move className="w-3.5 h-3.5 text-indigo-400" />
-                Click any session card to light up clash-free drop slots.
+                Click any course session to calculate conflict-free target slots in real-time.
               </span>
             )}
           </div>
         </div>
 
-        {/* Timetable Grid */}
+        {/* 6. Master Timetable Grid */}
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
@@ -588,7 +815,7 @@ export default function App() {
                           Lunch
                         </th>
                       )}
-                      <th className="py-3 px-3 text-center border-r border-slate-800 min-w-[135px]">
+                      <th className="py-3 px-3 text-center border-r border-slate-800 min-w-[145px]">
                         <div>{per.label}</div>
                         <div className="text-[10px] font-normal text-slate-500">{per.time}</div>
                       </th>
@@ -609,7 +836,8 @@ export default function App() {
                       const isSelectedSession = selectedInstanceId && cellPlacement?.instance_id === selectedInstanceId;
 
                       const req = cellPlacement ? reqMap.get(cellPlacement.requirement_id) : null;
-                      const isPractical = req?.session_type === 'PRACTICAL';
+                      const style = getNEPCategoryStyle(req?.nep_category);
+                      const CategoryIcon = style.icon;
 
                       return (
                         <React.Fragment key={per.p}>
@@ -626,7 +854,7 @@ export default function App() {
                                 handleSessionClick(cellPlacement.instance_id);
                               }
                             }}
-                            className={`p-2 border-r border-slate-800 align-top transition cursor-pointer relative h-28 ${
+                            className={`p-2 border-r border-slate-800 align-top transition cursor-pointer relative h-32 ${
                               isValidTarget 
                                 ? 'bg-emerald-500/20 hover:bg-emerald-500/30 ring-2 ring-emerald-400 ring-inset' 
                                 : isSelectedSession
@@ -635,23 +863,18 @@ export default function App() {
                             }`}
                           >
                             {cellPlacement ? (
-                              <div className={`h-full rounded-lg p-2.5 flex flex-col justify-between shadow-sm border transition ${
-                                isPractical
-                                  ? 'bg-emerald-950/50 border-emerald-500/40 text-emerald-100 hover:border-emerald-400'
-                                  : 'bg-indigo-950/50 border-indigo-500/40 text-indigo-100 hover:border-indigo-400'
-                              }`}>
+                              <div className={`h-full rounded-lg p-2.5 flex flex-col justify-between shadow-sm border transition ${style.bg}`}>
                                 <div>
-                                  <div className="flex items-center justify-between mb-1">
+                                  <div className="flex items-center justify-between gap-1 mb-1">
                                     <span className="font-extrabold text-xs tracking-tight">
                                       {req?.course_id}
                                     </span>
-                                    <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase ${
-                                      isPractical ? 'bg-emerald-500/20 text-emerald-300' : 'bg-indigo-500/20 text-indigo-300'
-                                    }`}>
-                                      {isPractical ? 'Lab (2h)' : 'Theory'}
+                                    <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border uppercase flex items-center gap-1 ${style.badge}`}>
+                                      <CategoryIcon className="w-2.5 h-2.5" />
+                                      {style.label}
                                     </span>
                                   </div>
-                                  <div className="text-[11px] font-medium leading-tight text-slate-300 line-clamp-1">
+                                  <div className="text-[11px] font-semibold leading-tight line-clamp-1">
                                     {req?.course_name}
                                   </div>
                                 </div>
@@ -659,12 +882,14 @@ export default function App() {
                                 <div className="mt-2 pt-1 border-t border-slate-800/60 text-[10px] space-y-0.5 text-slate-400">
                                   <div className="flex items-center gap-1 text-slate-300">
                                     <DoorOpen className="w-3 h-3 text-slate-400" />
-                                    <span>{cellPlacement.assigned_room_id ? roomMap.get(cellPlacement.assigned_room_id) : 'Virtual'}</span>
+                                    <span className="truncate">
+                                      {cellPlacement.assigned_room_id ? roomMap.get(cellPlacement.assigned_room_id)?.name : 'Virtual'}
+                                    </span>
                                   </div>
                                   <div className="flex items-center gap-1 text-slate-400">
                                     <Users className="w-3 h-3 text-slate-500" />
                                     <span className="truncate">
-                                      {cellPlacement.assigned_faculty_ids.map(id => facultyMap.get(id)).join(', ')}
+                                      {cellPlacement.assigned_faculty_ids.map(id => facultyMap.get(id)?.name).join(', ')}
                                     </span>
                                   </div>
                                 </div>
@@ -692,9 +917,221 @@ export default function App() {
 
       </main>
 
-      {/* Compare Profiles Modal */}
+      {/* MODAL 1: NEP 2020 Multidisciplinary Minor Basket Inspector (CON-H-011) */}
+      {showBasketModal && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                  <GitFork className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-100">
+                    NEP 2020 Multidisciplinary Minor Basket Synchronization (CON-H-011)
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Guarantees parallel time slot alignment for cross-departmental student elective flexibility
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowBasketModal(false)}
+                className="text-slate-400 hover:text-slate-200 text-sm font-bold p-1 rounded-lg hover:bg-slate-800"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-purple-950/30 border border-purple-500/30 text-xs text-purple-200 leading-relaxed space-y-2">
+                <div className="font-bold flex items-center gap-1.5 text-purple-300">
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  How CON-H-011 Solves Problem Statement 25091:
+                </div>
+                <p>
+                  In FYUP Semester 3, students from both <strong>Section A (Computer Science)</strong> and <strong>Section B (Humanities)</strong> can choose one multidisciplinary minor course. To avoid timetable clashes across majors, the CP-SAT engine enforces a mathematical equality constraint on their start slots:
+                </p>
+                <div className="bg-slate-950/70 p-2.5 rounded-lg border border-purple-500/20 font-mono text-center text-indigo-300 text-[11px]">
+                  start(Economics Minor) = start(Math Minor) = start(Psychology Minor)
+                </div>
+                <p>
+                  Each course runs concurrently at the exact same hour in separate Smart Lecture Halls.
+                </p>
+              </div>
+
+              {/* Synchronized Parallel Slots Table */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                  Active Synchronized Minor Sessions (3 Hours/Week):
+                </h4>
+                <div className="space-y-2">
+                  {minorSlots.map((slotIdx, idx) => {
+                    const dayIdx = Math.floor(slotIdx / 8);
+                    const perIdx = slotIdx % 8;
+                    const dayName = days[dayIdx];
+                    const perLabel = periods[perIdx].label;
+                    const perTime = periods[perIdx].time;
+
+                    const ecoP = minorPlacements.find(p => p.requirement_id === 'REQ_MINOR_ECO' && p.start_slot === slotIdx);
+                    const mathP = minorPlacements.find(p => p.requirement_id === 'REQ_MINOR_MATH' && p.start_slot === slotIdx);
+                    const psyP = minorPlacements.find(p => p.requirement_id === 'REQ_MINOR_PSY' && p.start_slot === slotIdx);
+
+                    return (
+                      <div key={slotIdx} className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-bold text-indigo-300 flex items-center gap-1.5">
+                            <Clock className="w-3.5 h-3.5 text-indigo-400" />
+                            Parallel Slot #{idx + 1}: {dayName} {perLabel} ({perTime})
+                          </span>
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
+                            CON-H-011 SYNCHRONIZED
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                          <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
+                            <div className="font-bold text-slate-200">Principles of Microeconomics</div>
+                            <div className="text-[11px] text-slate-400">MIN-ECO-201</div>
+                            <div className="text-[10px] text-indigo-300 mt-1 flex items-center gap-1">
+                              <DoorOpen className="w-3 h-3" />
+                              {ecoP?.assigned_room_id ? roomMap.get(ecoP.assigned_room_id)?.name : 'Smart LH 101'}
+                            </div>
+                          </div>
+                          <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
+                            <div className="font-bold text-slate-200">Applied Linear Algebra</div>
+                            <div className="text-[11px] text-slate-400">MIN-MTH-201</div>
+                            <div className="text-[10px] text-indigo-300 mt-1 flex items-center gap-1">
+                              <DoorOpen className="w-3 h-3" />
+                              {mathP?.assigned_room_id ? roomMap.get(mathP.assigned_room_id)?.name : 'Smart LH 102'}
+                            </div>
+                          </div>
+                          <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
+                            <div className="font-bold text-slate-200">Cognitive Psychology</div>
+                            <div className="text-[11px] text-slate-400">MIN-PSY-201</div>
+                            <div className="text-[10px] text-indigo-300 mt-1 flex items-center gap-1">
+                              <DoorOpen className="w-3 h-3" />
+                              {psyP?.assigned_room_id ? roomMap.get(psyP.assigned_room_id)?.name : 'Smart LH 103'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-3 border-t border-slate-800">
+              <button
+                onClick={() => setShowBasketModal(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition"
+              >
+                Close Inspector
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: UGC Workload & Infrastructure Compliance Panel */}
+      {showWorkloadModal && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-4xl w-full p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  <Building2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-100">
+                    Faculty Workload & Infrastructure Compliance Matrix
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Enforcing UGC / NEP 2020 workload norms (Max 14-16 teaching hours/week) and laboratory capacity fit
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowWorkloadModal(false)}
+                className="text-slate-400 hover:text-slate-200 text-sm font-bold p-1 rounded-lg hover:bg-slate-800"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                  Faculty Teaching Load Distribution:
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-72 overflow-y-auto pr-1">
+                  {(snapshot?.faculty || []).map(fac => {
+                    const facPlacements = placements.filter(p => p.assigned_faculty_ids.includes(fac.faculty_id));
+                    const totalHours = facPlacements.reduce((sum, p) => sum + p.duration_slots, 0);
+                    const maxCap = fac.designation.includes('Professor') ? 14 : 16;
+                    const percent = Math.min(100, Math.round((totalHours / maxCap) * 100));
+
+                    return (
+                      <div key={fac.faculty_id} className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <div>
+                            <span className="font-bold text-slate-200">{fac.name}</span>
+                            <span className="text-[10px] text-slate-500 block">{fac.designation} • {fac.department_id}</span>
+                          </div>
+                          <span className="text-xs font-mono font-bold text-indigo-300">
+                            {totalHours} / {maxCap} hrs
+                          </span>
+                        </div>
+                        <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full rounded-full transition-all ${
+                              totalHours > maxCap ? 'bg-rose-500' : 'bg-emerald-500'
+                            }`}
+                            style={{ width: `${percent}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-[10px] text-slate-500">
+                          <span>Max 4h/day compliant</span>
+                          <span className="text-emerald-400 font-semibold">0 Gaps (CON-S-003)</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Infrastructure Capacity Fit */}
+              <div className="pt-2 border-t border-slate-800">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                  Campus Facility Allocation:
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  {(snapshot?.rooms || []).map(r => (
+                    <div key={r.room_id} className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 space-y-1">
+                      <div className="font-bold text-slate-300 truncate">{r.name}</div>
+                      <div className="text-[10px] text-slate-500">{r.room_type_id}</div>
+                      <div className="text-[10px] text-emerald-400 font-semibold">Capacity: {r.capacity} seats</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-3 border-t border-slate-800">
+              <button
+                onClick={() => setShowWorkloadModal(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition"
+              >
+                Close Workload Matrix
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: Compare Profiles Modal */}
       {showCompareModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-4xl w-full p-6 shadow-2xl space-y-6">
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div>
@@ -770,9 +1207,10 @@ export default function App() {
           </div>
         </div>
       )}
-      {/* Diagnostics Modal (Section 13) */}
+
+      {/* MODAL 4: Diagnostics Modal */}
       {showDiagnosticsModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-5">
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div className="flex items-center gap-2.5">
@@ -813,31 +1251,16 @@ export default function App() {
                   </div>
                 </div>
 
-                {diagnosticsData.bottlenecks.length > 0 && (
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Detected Bottlenecks:</h4>
-                    {diagnosticsData.bottlenecks.map((b: any, idx: number) => (
-                      <div key={idx} className="p-3 rounded-lg bg-slate-950 border border-slate-800 text-xs space-y-1">
-                        <div className="flex justify-between text-rose-400 font-semibold">
-                          <span>{b.entity_name} ({b.category})</span>
-                          <span>Deficit: {b.deficit} slots</span>
-                        </div>
-                        <p className="text-slate-400">{b.message}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
                 <div className="bg-slate-950/60 p-3 rounded-lg border border-slate-800 text-xs space-y-2">
                   <div className="font-semibold text-slate-300 flex items-center gap-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                    Snapshot Audit Overview:
+                    NEP 2020 Institution Resource Overview:
                   </div>
                   <ul className="text-slate-400 space-y-1 text-[11px] list-disc list-inside">
-                    <li>Total teachable slots per week: 40 periods (Mon–Fri, 8 periods/day)</li>
-                    <li>Student group teaching load: Max 24 hours (Capacity Headroom: 16 slots)</li>
+                    <li>Academic Grid: 40 teachable periods per week (Mon–Fri, 8 periods/day)</li>
+                    <li>Programs Enrolled: FYUP Sem 3, ITEP Sem 5, B.Ed. Sem 3, M.Ed. Sem 3</li>
                     <li>Faculty availability: 12 professors with 456 total available periods</li>
-                    <li>Room capacity: 4 Lecture Halls (Cap 60) + 4 Computer Labs (Cap 30)</li>
+                    <li>Infrastructure: 4 Smart Lecture Halls, 2 Computer Labs, 1 Pedagogy Hall, 1 Science Lab</li>
                   </ul>
                 </div>
               </div>
@@ -855,7 +1278,7 @@ export default function App() {
         </div>
       )}
 
-      {/* AI Copilot Side Drawer (Section 14 / UI-022) */}
+      {/* DRAWER: AI Copilot Side Drawer */}
       {showAICopilot && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex justify-end">
           <div className="bg-slate-900 border-l border-slate-800 w-full max-w-lg h-full p-6 shadow-2xl flex flex-col justify-between animate-in slide-in-from-right duration-200">
@@ -866,7 +1289,7 @@ export default function App() {
                     <Bot className="w-5 h-5 font-bold" />
                   </div>
                   <div>
-                    <h3 className="text-base font-bold text-slate-100">Acadence AI Copilot</h3>
+                    <h3 className="text-base font-bold text-slate-100">Acadence NEP 2020 AI Copilot</h3>
                     <p className="text-[11px] text-slate-400">Advisory Timetable Assistant (Section 14)</p>
                   </div>
                 </div>

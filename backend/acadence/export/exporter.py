@@ -3,6 +3,7 @@ Follows Section 19 (File Export) and HOLE-019 (Formula injection protection).
 """
 import io
 import csv
+import re
 from typing import Dict, List, Optional
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -105,7 +106,8 @@ def export_to_xlsx(
     sections = [g for g in snapshot.student_groups if not g.parent_id or "SEC_" in g.group_id]
 
     for sec in sections:
-        ws = wb.create_sheet(title=sec.name[:30])
+        clean_sheet_title = re.sub(r'[:\\/?*\[\]]', '-', sec.name)[:30]
+        ws = wb.create_sheet(title=clean_sheet_title)
         ws.row_dimensions[1].height = 28
 
         # Title

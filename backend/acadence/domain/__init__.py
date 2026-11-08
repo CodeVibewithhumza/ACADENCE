@@ -1,4 +1,11 @@
-from acadence.domain.enums import Hardness, AudienceKind, SolverStatus, ValidationStatus
+from acadence.domain.enums import (
+    Hardness,
+    AudienceKind,
+    SolverStatus,
+    ValidationStatus,
+    NEPCategory,
+    ProgramType,
+)
 from acadence.domain.snapshot import (
     TimeSlot,
     TimeGrid,
@@ -9,6 +16,8 @@ from acadence.domain.snapshot import (
     SessionRequirement,
     Placement,
     ConfigSnapshot,
+    ElectiveGroup,
+    CourseRelationship,
 )
 from acadence.domain.objectives import (
     ObjectiveProfile,
@@ -21,6 +30,8 @@ __all__ = [
     "AudienceKind",
     "SolverStatus",
     "ValidationStatus",
+    "NEPCategory",
+    "ProgramType",
     "TimeSlot",
     "TimeGrid",
     "StudentGroup",
@@ -30,6 +41,8 @@ __all__ = [
     "SessionRequirement",
     "Placement",
     "ConfigSnapshot",
+    "ElectiveGroup",
+    "CourseRelationship",
     "ObjectiveProfile",
     "MetricReport",
     "SEEDED_PROFILES",

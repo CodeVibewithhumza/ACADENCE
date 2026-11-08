@@ -70,10 +70,17 @@ def attach_soft_constraints(
     # 3. CON-S-004: Student group idle gaps
     w_004 = weights.get("CON-S-004", 0)
     if w_004 > 0:
+        parallel_non_anchors = set()
+        for eg in snapshot.elective_groups:
+            if eg.mode == "PARALLEL" and len(eg.member_requirement_ids) > 1:
+                for other_req_id in eg.member_requirement_ids[1:]:
+                    parallel_non_anchors.add(other_req_id)
+
         gap_vars = []
         for leaf_id, path_groups in compiled.leaf_paths.items():
             visible_insts = [
-                inst for inst in compiled.instances if set(inst.audience_group_ids) & path_groups
+                inst for inst in compiled.instances
+                if (set(inst.audience_group_ids) & path_groups) and (inst.requirement_id not in parallel_non_anchors)
             ]
             if not visible_insts:
                 continue

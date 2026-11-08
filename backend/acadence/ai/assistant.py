@@ -42,18 +42,29 @@ def process_ai_query(
 
     # 1. Intent: Move query (e.g. "move cs201" or "reschedule cs204")
     if "move" in q or "shift" in q:
-        # Identify course
-        target_course = None
-        for code in ["cs201", "cs202", "cs203", "cs204"]:
-            if code in q:
-                target_course = code.upper()
+        # Match against courses in snapshot
+        target_req = None
+        matched_token = ""
+        words = [w.strip("?,.! ") for w in q.split()]
+        for req in snapshot.requirements:
+            c_id_lower = req.course_id.lower()
+            c_clean = c_id_lower.replace("-", "")
+            for w in words:
+                if len(w) >= 4 and any(ch.isdigit() for ch in w) and w in c_clean:
+                    target_req = req
+                    matched_token = w.upper()
+                    break
+            if target_req:
+                break
+            if c_id_lower in q or req.course_name.lower() in q or req.requirement_id.lower() in q:
+                target_req = req
+                matched_token = req.course_id
                 break
 
-        if target_course:
-            # Find a placement of this course
+        if target_req:
             matching = [
                 p for p in current_placements
-                if target_course in p.requirement_id
+                if p.requirement_id == target_req.requirement_id
             ]
             if matching:
                 p_target = matching[0]
@@ -64,14 +75,14 @@ def process_ai_query(
                     chosen_slot = alt_targets[0]
                     d_idx = chosen_slot // grid.periods_per_day
                     p_idx = chosen_slot % grid.periods_per_day
-                    req = req_map.get(p_target.requirement_id)
+                    req = target_req
                     day_name = days[d_idx]
                     period_name = f"P{p_idx + 1}"
 
                     proposal = AIProposal(
                         proposal_id=str(uuid.uuid4())[:8],
                         action_type="MOVE_SESSION",
-                        title=f"Move {target_course} to {day_name} {period_name}",
+                        title=f"Move {target_req.course_id} to {day_name} {period_name}",
                         explanation=f"Found {len(alt_targets)} valid clash-free slots. Moving session from {days[p_target.day]} P{p_target.period+1} to {day_name} {period_name} maintains 100% compliance with all hard constraints and room requirements.",
                         is_valid=True,
                         instance_id=p_target.instance_id,
@@ -79,15 +90,16 @@ def process_ai_query(
                         new_day=day_name,
                         new_period=period_name,
                     )
+                    course_label = f"{target_req.course_id} ({matched_token})" if matched_token and matched_token != target_req.course_id else target_req.course_id
                     return AIResponse(
                         query=query,
-                        reply=f"I analyzed the timetable constraints for **{target_course} ({req.course_name if req else ''})**. I can move this session to **{day_name} {period_name}** with zero clashes.",
+                        reply=f"I analyzed the timetable constraints for **{course_label} - {target_req.course_name}**. I can move this session to **{day_name} {period_name}** with zero clashes.",
                         proposal=proposal,
                     )
 
         return AIResponse(
             query=query,
-            reply="I couldn't identify the specific course you'd like to move. Please mention a course code such as **CS201**, **CS202**, **CS203**, or **CS204**.",
+            reply="I couldn't identify the specific course you'd like to move. Please mention a course code such as **DSC-CS-201**, **MIN-ECO-201**, or **BED-CUR-201**.",
         )
 
     # 2. Intent: Explain Dr. Alan Turing / Faculty Unavailability

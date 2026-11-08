@@ -1,11 +1,13 @@
-"""Immutable configuration snapshot models for Acadence.
-Follows DATA-039 and Section 7.4 / Section 10.3 specifications.
+"""Immutable configuration snapshot models for Acadence with NEP 2020 Multidisciplinary Framework.
+Follows DATA-039 and Section 7.4 / Section 10.3 / Problem Statement 25091.
 """
 from __future__ import annotations
 import hashlib
 import json
 from typing import List, Optional, Set
 from pydantic import BaseModel, Field
+
+from acadence.domain.enums import NEPCategory, ProgramType
 
 
 class TimeSlot(BaseModel):
@@ -15,7 +17,7 @@ class TimeSlot(BaseModel):
     period: int  # 0 to periods_per_day - 1
     global_index: int  # day * periods_per_day + period
     is_teachable: bool = True
-    break_after: bool = False  # e.g., lunch break or tea break after this slot
+    break_after: bool = False  # e.g., lunch break after this slot
 
     model_config = {"frozen": True}
 
@@ -24,7 +26,7 @@ class TimeGrid(BaseModel):
     """Grid header and slot layout for a term (ADR-006)."""
     grid_id: str
     name: str
-    num_days: int = 5  # e.g. Mon-Fri
+    num_days: int = 5  # Mon-Fri
     periods_per_day: int = 8
     slots: List[TimeSlot] = Field(default_factory=list)
 
@@ -43,15 +45,17 @@ class StudentGroup(BaseModel):
     name: str
     parent_id: Optional[str] = None  # None for root cohorts, section id for batches
     expected_strength: int = 30
+    program_type: ProgramType = ProgramType.FYUP
+    semester: int = 3
 
     model_config = {"frozen": True}
 
 
 class Room(BaseModel):
-    """Physical lecture hall or laboratory (DATA-024)."""
+    """Physical lecture hall, laboratory, or pedagogy classroom (DATA-024)."""
     room_id: str
     name: str
-    room_type_id: str  # e.g., 'LECTURE_HALL', 'COMPUTER_LAB'
+    room_type_id: str  # e.g., 'LECTURE_HALL', 'COMPUTER_LAB', 'SCIENCE_LAB', 'PEDAGOGY_ROOM'
     capacity: int
     features: Set[str] = Field(default_factory=set)
 
@@ -62,10 +66,11 @@ class Faculty(BaseModel):
     """Teaching faculty member (DATA-019)."""
     faculty_id: str
     name: str
-    department_id: str
-    max_hours_week: int = 40
-    max_hours_day: int = 8
-    unavailable_slots: Set[int] = Field(default_factory=set)  # global slot indices
+    department_id: str  # e.g., 'COMPUTER_SCIENCE', 'EDUCATION', 'PHYSICAL_SCIENCES', 'HUMANITIES'
+    designation: str = "Assistant Professor"
+    max_hours_week: int = 16  # UGC / NEP 2020 workload norm (16h for Asst Prof)
+    max_hours_day: int = 4
+    unavailable_slots: Set[int] = Field(default_factory=set)
 
     model_config = {"frozen": True}
 
@@ -79,15 +84,18 @@ class RoomAvailability(BaseModel):
 
 
 class SessionRequirement(BaseModel):
-    """Teaching pattern requirement for a course offering (DATA-018 / Section 7.3)."""
+    """Teaching pattern requirement for a course offering under NEP 2020."""
     requirement_id: str
     course_id: str
     course_name: str
     offering_id: str
-    group_ids: List[str]  # Student groups that attend this session
-    session_type: str  # 'LECTURE', 'TUTORIAL', 'PRACTICAL'
+    group_ids: List[str]
+    session_type: str  # 'LECTURE', 'TUTORIAL', 'PRACTICAL', 'FIELD_WORK', 'SCHOOL_INTERNSHIP'
+    nep_category: NEPCategory = NEPCategory.MAJOR
+    credits: int = 4
+    program_type: ProgramType = ProgramType.FYUP
     sessions_per_week: int = 1
-    duration_slots: int = 1  # 1 for lecture, 2 or 3 for practicals
+    duration_slots: int = 1  # 1 for theory, 2 for practicals / internships
     room_type_id: Optional[str] = None
     room_required: bool = True
     required_features: Set[str] = Field(default_factory=set)
@@ -112,10 +120,35 @@ class Placement(BaseModel):
     model_config = {"frozen": True}
 
 
+class ElectiveGroup(BaseModel):
+    """Multidisciplinary elective basket (Minor, SEC, VAC) with parallel alignment (DATA-032)."""
+    elective_group_id: str
+    name: str
+    mode: str = "PARALLEL"  # 'PARALLEL' (CON-H-011) or 'INDEPENDENT'
+    nep_category: NEPCategory = NEPCategory.MINOR
+    member_requirement_ids: List[str] = Field(default_factory=list)
+    attached_group_ids: List[str] = Field(default_factory=list)
+
+    model_config = {"frozen": True}
+
+
+class CourseRelationship(BaseModel):
+    """Pairwise relationship between course offerings (DATA-034 / CON-H-012)."""
+    relationship_id: str
+    requirement_id_a: str
+    requirement_id_b: str
+    relationship_type: str = "CANNOT_OVERLAP"  # 'CANNOT_OVERLAP' or 'ALLOW_OVERLAP'
+
+    model_config = {"frozen": True}
+
+
 class ConfigSnapshot(BaseModel):
     """Frozen, immutable configuration snapshot (DATA-039)."""
     snapshot_id: str
     institution_id: str
+    institution_name: str = "Govt. College of Education & Multidisciplinary Studies, J&K"
+    state_or_ut: str = "Jammu and Kashmir"
+    problem_statement_id: str = "25091"
     term_id: str
     time_grid: TimeGrid
     student_groups: List[StudentGroup]
@@ -123,6 +156,8 @@ class ConfigSnapshot(BaseModel):
     faculty: List[Faculty]
     requirements: List[SessionRequirement]
     room_unavailability: List[RoomAvailability] = Field(default_factory=list)
+    elective_groups: List[ElectiveGroup] = Field(default_factory=list)
+    course_relationships: List[CourseRelationship] = Field(default_factory=list)
 
     model_config = {"frozen": True}
 
@@ -130,4 +165,3 @@ class ConfigSnapshot(BaseModel):
         """Computes deterministic SHA-256 hash of the snapshot content."""
         data_str = self.model_dump_json(exclude={"snapshot_id"})
         return hashlib.sha256(data_str.encode("utf-8")).hexdigest()
-

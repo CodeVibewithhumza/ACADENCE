@@ -315,17 +315,49 @@ def validate(
                 for step in range(p.duration_slots):
                     group_slot_usage[p.start_slot + step].append(p.instance_id)
 
+        # Find parallel elective member sets to permit parallel elective alignment
+        parallel_member_sets = []
+        for eg in snapshot.elective_groups:
+            if eg.mode == "PARALLEL":
+                parallel_member_sets.append(set(eg.member_requirement_ids))
+
         for slot_idx, instances in group_slot_usage.items():
             if len(instances) > 1:
-                violations.append(
-                    ValidationViolation(
-                        check_id="VAL-004",
-                        entity_type="GROUP",
-                        entity_id=leaf_id,
-                        slot_index=slot_idx,
-                        message=f"Student group clash along path of leaf {leaf_id} at slot {slot_idx} for instances {instances}.",
+                # Check if all instances belong to the same parallel elective group
+                inst_reqs = {next(p.requirement_id for p in placements if p.instance_id == i_id) for i_id in instances}
+                is_parallel_elective_basket = any(inst_reqs.issubset(pm_set) for pm_set in parallel_member_sets)
+
+                if not is_parallel_elective_basket:
+                    violations.append(
+                        ValidationViolation(
+                            check_id="VAL-004",
+                            entity_type="GROUP",
+                            entity_id=leaf_id,
+                            slot_index=slot_idx,
+                            message=f"Student group clash along path of leaf {leaf_id} at slot {slot_idx} for instances {instances}.",
+                        )
                     )
-                )
+
+    # 6. VAL-011: Parallel Elective Alignment
+    for eg in snapshot.elective_groups:
+        if eg.mode == "PARALLEL" and len(eg.member_requirement_ids) > 1:
+            req_starts: Dict[str, List[int]] = {}
+            for req_id in eg.member_requirement_ids:
+                req_starts[req_id] = sorted([p.start_slot for p in placements if p.requirement_id == req_id])
+
+            first_req_id = eg.member_requirement_ids[0]
+            anchor_starts = req_starts.get(first_req_id, [])
+            for other_req_id in eg.member_requirement_ids[1:]:
+                other_starts = req_starts.get(other_req_id, [])
+                if anchor_starts != other_starts:
+                    violations.append(
+                        ValidationViolation(
+                            check_id="VAL-011",
+                            entity_type="ELECTIVE_GROUP",
+                            entity_id=eg.elective_group_id,
+                            message=f"Parallel elective basket {eg.name} is misaligned: {first_req_id} starts at {anchor_starts} while {other_req_id} starts at {other_starts}.",
+                        )
+                    )
 
     status = ValidationStatus.VALID if len(violations) == 0 else ValidationStatus.INVALID
     return ValidationReport(status=status, violations=violations)

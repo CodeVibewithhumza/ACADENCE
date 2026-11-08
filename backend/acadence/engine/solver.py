@@ -190,14 +190,48 @@ def solve(
             model.AddNoOverlap(intervals)
 
     # 5. CON-H-004: Student group leaf-path NoOverlap
+    # For parallel elective groups, only include the anchor member so parallel electives can run concurrently (Section 9.2)
+    parallel_non_anchors = set()
+    for eg in snapshot.elective_groups:
+        if eg.mode == "PARALLEL" and len(eg.member_requirement_ids) > 1:
+            for other_req_id in eg.member_requirement_ids[1:]:
+                parallel_non_anchors.add(other_req_id)
+
     for leaf_id, path_groups in compiled.leaf_paths.items():
         # Find all session intervals visible to this leaf path
         group_intervals = []
         for inst in compiled.instances:
             if set(inst.audience_group_ids) & path_groups:
-                group_intervals.append(interval_vars[inst.instance_id])
+                if inst.requirement_id not in parallel_non_anchors:
+                    group_intervals.append(interval_vars[inst.instance_id])
         if len(group_intervals) > 1:
             model.AddNoOverlap(group_intervals)
+
+    # 5.1 CON-H-011: Parallel Elective Alignment
+    for eg in snapshot.elective_groups:
+        if eg.mode == "PARALLEL" and len(eg.member_requirement_ids) > 1:
+            req_inst_map: Dict[str, List[str]] = {}
+            for req_id in eg.member_requirement_ids:
+                req_inst_map[req_id] = [
+                    inst.instance_id for inst in compiled.instances if inst.requirement_id == req_id
+                ]
+            first_req_id = eg.member_requirement_ids[0]
+            num_sessions = len(req_inst_map.get(first_req_id, []))
+            for k in range(num_sessions):
+                anchor_inst_id = req_inst_map[first_req_id][k]
+                for other_req_id in eg.member_requirement_ids[1:]:
+                    if k < len(req_inst_map.get(other_req_id, [])):
+                        other_inst_id = req_inst_map[other_req_id][k]
+                        model.Add(start_vars[anchor_inst_id] == start_vars[other_inst_id])
+
+    # 5.2 CON-H-012: Declared CANNOT_OVERLAP pairs
+    for cr in snapshot.course_relationships:
+        if cr.relationship_type == "CANNOT_OVERLAP":
+            insts_a = [inst.instance_id for inst in compiled.instances if inst.requirement_id == cr.requirement_id_a]
+            insts_b = [inst.instance_id for inst in compiled.instances if inst.requirement_id == cr.requirement_id_b]
+            for ia in insts_a:
+                for ib in insts_b:
+                    model.AddNoOverlap([interval_vars[ia], interval_vars[ib]])
 
     # 6. Attach Soft Constraints and Objectives if profile provided
     if params.profile:

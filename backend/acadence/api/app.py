@@ -6,20 +6,21 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from acadence.domain.enums import SolverStatus, ValidationStatus
+from acadence.domain.enums import SolverStatus, ValidationStatus, NEPCategory, ProgramType
 from acadence.domain.objectives import MetricReport, ObjectiveProfile, SEEDED_PROFILES
 from acadence.domain.snapshot import ConfigSnapshot, Placement
 from acadence.engine.solver import solve, SolverParameters
 from acadence.test_data.synthetic import generate_tier_s_snapshot
+from acadence.test_data.nep2020 import generate_nep2020_institution_snapshot
 from acadence.validator.delta import apply_move, compute_valid_targets
 from acadence.validator.metrics import evaluate_metrics
 from acadence.validator.report import ValidationReport
 from acadence.validator.validator import validate
 
 app = FastAPI(
-    title="Acadence Academic Timetable Platform",
-    description="Configurable Timetable Generation, Optimization, and Verification API",
-    version="1.0.0",
+    title="Acadence NEP 2020 Multidisciplinary Timetable System",
+    description="AI-Based Timetable Generation System aligned with NEP 2020 (Problem Statement 25091 - Govt. of J&K)",
+    version="2.0.0",
 )
 
 # Enable CORS for local Vite dev server
@@ -33,7 +34,7 @@ app.add_middleware(
 
 # In-memory session state for active working timetable
 class AppState:
-    snapshot: ConfigSnapshot = generate_tier_s_snapshot(seed=42)
+    snapshot: ConfigSnapshot = generate_nep2020_institution_snapshot(seed=42)
     current_placements: List[Placement] = []
     current_profile: str = "BALANCED"
     current_metrics: Optional[MetricReport] = None

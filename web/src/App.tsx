@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   CheckCircle2, ShieldCheck, RefreshCw, 
   Layers, Users, DoorOpen, Sparkles, BarChart3, Move,
-  Download, FileSpreadsheet, Activity
+  Download, FileSpreadsheet, Activity, Bot, Send, Check
 } from 'lucide-react';
 
 interface MetricReport {
@@ -105,6 +105,72 @@ export default function App() {
 
   function handleExportCSV() {
     window.open('/api/export/csv', '_blank');
+  }
+
+  // AI Assistant Copilot (Section 14)
+  const [showAICopilot, setShowAICopilot] = useState<boolean>(false);
+  const [aiQuery, setAiQuery] = useState<string>('');
+  const [aiLoading, setAiLoading] = useState<boolean>(false);
+  const [aiMessages, setAiMessages] = useState<Array<{ sender: 'user' | 'assistant'; text: string; proposal?: any }>>([
+    {
+      sender: 'assistant',
+      text: 'Hello! I am your Acadence AI Timetable Copilot (Section 14). I can explain constraint rules, analyze why specific sessions were scheduled, or draft validated reschedule proposals.',
+    },
+  ]);
+
+  async function handleSendAIQuery(customQuery?: string) {
+    const qText = customQuery || aiQuery;
+    if (!qText.trim()) return;
+
+    setAiMessages(prev => [...prev, { sender: 'user', text: qText }]);
+    setAiQuery('');
+    setAiLoading(true);
+
+    try {
+      const res = await fetch('/api/ai/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: qText }),
+      });
+      const data = await res.json();
+      setAiMessages(prev => [
+        ...prev,
+        {
+          sender: 'assistant',
+          text: data.reply,
+          proposal: data.proposal,
+        },
+      ]);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
+  async function handleApplyAIProposal(proposal: any) {
+    if (!proposal || !proposal.instance_id || proposal.target_slot === undefined) return;
+    try {
+      setMoveMessage(`Applying AI Proposal: Moving to ${proposal.new_day} ${proposal.new_period}...`);
+      const res = await fetch('/api/timetable/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          instance_id: proposal.instance_id,
+          new_start_slot: proposal.target_slot,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPlacements(data.placements);
+        setMetrics(data.metrics);
+        setValidation(data.validation);
+        setMoveMessage(`AI Proposal applied & verified by Independent Oracle!`);
+        setTimeout(() => setMoveMessage(null), 3000);
+      }
+    } catch (err) {
+      console.error(err);
+    }
   }
 
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -339,6 +405,15 @@ export default function App() {
           >
             <BarChart3 className="w-4 h-4 text-indigo-400" />
             <span>Compare Profiles</span>
+          </button>
+
+          {/* AI Copilot Button (Section 14) */}
+          <button
+            onClick={() => setShowAICopilot(true)}
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-indigo-900/60 to-purple-900/60 hover:from-indigo-800/80 hover:to-purple-800/80 border border-indigo-500/40 text-indigo-200 text-xs font-semibold shadow-sm transition"
+          >
+            <Bot className="w-4 h-4 text-indigo-400" />
+            <span>AI Copilot</span>
           </button>
 
           {/* Re-Generate Button */}
@@ -775,6 +850,128 @@ export default function App() {
               >
                 Close
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Copilot Side Drawer (Section 14 / UI-022) */}
+      {showAICopilot && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex justify-end">
+          <div className="bg-slate-900 border-l border-slate-800 w-full max-w-lg h-full p-6 shadow-2xl flex flex-col justify-between animate-in slide-in-from-right duration-200">
+            <div>
+              <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-500 text-slate-950 shadow-md shadow-indigo-500/20">
+                    <Bot className="w-5 h-5 font-bold" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-100">Acadence AI Copilot</h3>
+                    <p className="text-[11px] text-slate-400">Advisory Timetable Assistant (Section 14)</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAICopilot(false)}
+                  className="text-slate-400 hover:text-slate-200 text-sm font-bold p-1 rounded-lg hover:bg-slate-800"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Sample Prompt Pills */}
+              <div className="space-y-1.5 mb-4">
+                <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Suggested Inquiries:</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    "Can we move CS201 to another slot?",
+                    "Why is Dr. Alan Turing restricted?",
+                    "What happens if Dr. Turing is sick on Monday?",
+                  ].map((p, i) => (
+                    <button
+                      key={i}
+                      onClick={() => handleSendAIQuery(p)}
+                      className="text-[11px] px-2.5 py-1 rounded-full bg-slate-800/80 hover:bg-slate-700/80 text-indigo-300 border border-indigo-500/20 text-left transition"
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Chat Messages */}
+            <div className="flex-1 overflow-y-auto space-y-3.5 pr-1 my-2">
+              {aiMessages.map((msg, i) => (
+                <div
+                  key={i}
+                  className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
+                >
+                  <div
+                    className={`max-w-[88%] p-3 rounded-2xl text-xs leading-relaxed ${
+                      msg.sender === 'user'
+                        ? 'bg-indigo-600 text-white rounded-br-sm'
+                        : 'bg-slate-950 border border-slate-800 text-slate-200 rounded-bl-sm'
+                    }`}
+                  >
+                    {msg.text}
+
+                    {/* Proposal Card */}
+                    {msg.proposal && (
+                      <div className="mt-3 p-3 rounded-xl bg-indigo-950/40 border border-indigo-500/30 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-indigo-300 text-[11px] flex items-center gap-1">
+                            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                            {msg.proposal.title}
+                          </span>
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            ORACLE CERTIFIED
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-300">{msg.proposal.explanation}</p>
+                        <button
+                          onClick={() => handleApplyAIProposal(msg.proposal)}
+                          className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition shadow-sm flex items-center justify-center gap-1.5"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          Approve & Apply Proposal
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {aiLoading && (
+                <div className="flex items-center gap-2 text-xs text-slate-400 p-2">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                  <span>Evaluating constraints with Independent Validator oracle...</span>
+                </div>
+              )}
+            </div>
+
+            {/* Chat Input */}
+            <div className="pt-3 border-t border-slate-800">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSendAIQuery();
+                }}
+                className="flex items-center gap-2"
+              >
+                <input
+                  type="text"
+                  value={aiQuery}
+                  onChange={(e) => setAiQuery(e.target.value)}
+                  placeholder="Ask a scheduling question or request a move..."
+                  className="flex-1 bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-indigo-500"
+                />
+                <button
+                  type="submit"
+                  disabled={!aiQuery.trim() || aiLoading}
+                  className="p-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-xl transition shadow-md"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </form>
             </div>
           </div>
         </div>

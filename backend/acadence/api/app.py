@@ -323,6 +323,62 @@ def export_xlsx():
     )
 
 
+class AIQueryRequest(BaseModel):
+    query: str
+
+
+class RescheduleAbsenceRequest(BaseModel):
+    faculty_id: str
+    slot_indices: List[int]
+
+
+@app.post("/api/ai/query")
+def handle_ai_query(req: AIQueryRequest):
+    """Processes natural language scheduling requests through the advisory AI assistant (Section 14)."""
+    from acadence.ai.assistant import process_ai_query
+    if not state.current_placements:
+        generate_timetable(GenerateRequest(profile_name="BALANCED"))
+    return process_ai_query(req.query, state.snapshot, state.current_placements)
+
+
+@app.post("/api/reschedule/faculty-absence")
+def handle_faculty_absence_reschedule(req: RescheduleAbsenceRequest):
+    """Executes minimal-disruption dynamic rescheduling for an emergency faculty absence (Section 12)."""
+    from acadence.engine.rescheduler import reschedule_for_faculty_absence
+    if not state.current_placements:
+        generate_timetable(GenerateRequest(profile_name="BALANCED"))
+
+    result = reschedule_for_faculty_absence(
+        snapshot=state.snapshot,
+        current_placements=state.current_placements,
+        absent_faculty_id=req.faculty_id,
+        absent_slot_indices=set(req.slot_indices),
+    )
+
+    if result.status not in (SolverStatus.OPTIMAL, SolverStatus.FEASIBLE):
+        raise HTTPException(
+            status_code=422,
+            detail=result.status_detail,
+        )
+
+    val_res = validate(state.snapshot, result.placements)
+    state.current_placements = result.placements
+    state.current_metrics = result.metrics
+    state.current_validation = val_res
+
+    return {
+        "status": result.status.value,
+        "message": result.status_detail,
+        "solve_time_seconds": result.solve_time_seconds,
+        "placements": result.placements,
+        "metrics": result.metrics,
+        "validation": {
+            "status": val_res.status.value,
+            "is_valid": val_res.is_valid,
+        },
+    }
+
+
 # Mount production web dashboard build if present
 import os
 from fastapi.staticfiles import StaticFiles

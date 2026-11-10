@@ -217,3 +217,4 @@ Located in the right drawer, the AI Copilot accepts natural language queries:
 ## 📄 License & Intellectual Property
 
 Developed for the **Higher Education Department, Government of Jammu & Kashmir** under the **Smart Automation (Software)** theme. All rights reserved.
+

@@ -5,7 +5,7 @@ import {
   Download, FileSpreadsheet, Bot, Send, Check,
   BookOpen, GraduationCap, GitFork, Cpu, Globe, Shield,
   Building2, Clock, Plus, Trash2, Settings, Upload, Database,
-  UserCheck, Calendar
+  UserCheck, Calendar, Printer, Play
 } from 'lucide-react';
 
 interface MetricReport {
@@ -152,6 +152,19 @@ export default function App() {
   const [pathwayGroup, setPathwayGroup] = useState<string>('GRP_FYUP_SEC_A');
   const [pathwayMinor, setPathwayMinor] = useState<string>('REQ_MINOR_ECO');
   const [pathwayPlacements, setPathwayPlacements] = useState<Placement[]>([]);
+
+  // Scenario Simulation State
+  const [showScenarioModal, setShowScenarioModal] = useState<boolean>(false);
+  const [scenarioType, setScenarioType] = useState<string>('FACULTY_ABSENCE');
+  const [scenarioFacId, setScenarioFacId] = useState<string>('FAC_CS_01');
+  const [scenarioResult, setScenarioResult] = useState<any>(null);
+  const [scenarioLoading, setScenarioLoading] = useState<boolean>(false);
+
+  // CSV Ingestion State
+  const [csvType, setCsvType] = useState<string>('COURSES');
+  const [csvText, setCsvText] = useState<string>('');
+  const [csvUploading, setCsvUploading] = useState<boolean>(false);
+  const [csvMessage, setCsvMessage] = useState<string | null>(null);
 
   // AI Assistant Copilot
   const [showAICopilot, setShowAICopilot] = useState<boolean>(false);
@@ -478,6 +491,100 @@ export default function App() {
     }
   }
 
+  // Handle Scenario Simulation
+  async function handleRunScenario(type: string, facId?: string) {
+    try {
+      setScenarioLoading(true);
+      setScenarioResult(null);
+      const res = await fetch('/api/simulate-scenario', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scenario_type: type,
+          entity_id: facId || scenarioFacId,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setScenarioResult(data);
+        const [snapRes, timeRes] = await Promise.all([
+          fetch('/api/snapshot').then(r => r.json()),
+          fetch('/api/timetable').then(r => r.json()),
+        ]);
+        setSnapshot(snapRes);
+        setPlacements(timeRes.placements || []);
+        setMetrics(timeRes.metrics || null);
+        setValidation(timeRes.validation || null);
+      } else {
+        setScenarioResult({ success: false, message: data.detail || 'Simulation failed' });
+      }
+    } catch (err: any) {
+      setScenarioResult({ success: false, message: err.message || 'Simulation network error' });
+    } finally {
+      setScenarioLoading(false);
+    }
+  }
+
+  // Handle CSV Ingestion
+  async function handleCsvUpload(e: React.FormEvent) {
+    e.preventDefault();
+    if (!csvText.trim()) return;
+    try {
+      setCsvUploading(true);
+      setCsvMessage(null);
+      const res = await fetch('/api/admin/upload-csv', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          data_type: csvType,
+          csv_content: csvText,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCsvMessage(data.message);
+        setCsvText('');
+        const [snapRes, timeRes] = await Promise.all([
+          fetch('/api/snapshot').then(r => r.json()),
+          fetch('/api/timetable').then(r => r.json()),
+        ]);
+        setSnapshot(snapRes);
+        setPlacements(timeRes.placements || []);
+      } else {
+        setCsvMessage(`Error: ${data.message}`);
+      }
+    } catch (err: any) {
+      setCsvMessage(`Upload failed: ${err.message}`);
+    } finally {
+      setCsvUploading(false);
+    }
+  }
+
+  function handleLoadSampleCsv() {
+    if (csvType === 'COURSES') {
+      setCsvText(
+        "course_id,course_name,program_type,nep_category,credits,sessions_per_week,duration_slots,group_ids,room_type_id,eligible_faculty_ids\n" +
+        "VAC-ENV-101,Environmental Studies & Sustainability,FYUP,VAC,2,2,1,GRP_FYUP_SEC_A;GRP_FYUP_SEC_B,LECTURE_HALL,FAC_BIO_01\n" +
+        "SEC-DS-201,Data Visualization Lab with Python,FYUP,SEC,2,1,2,GRP_FYUP_SEC_A,COMPUTER_LAB,FAC_CS_02\n" +
+        "B_ED-PED-301,Pedagogy of Biological Sciences,B_ED,MAJOR,4,3,1,GRP_BED_SEM3,PEDAGOGY_ROOM,FAC_EDU_02"
+      );
+    } else if (csvType === 'FACULTY') {
+      setCsvText(
+        "faculty_id,name,department_id,designation,max_hours_week,max_hours_day\n" +
+        "FAC_BIO_01,Dr. Salim Ali,BIOLOGY,Professor,14,4\n" +
+        "FAC_STAT_01,Dr. P.C. Mahalanobis,STATISTICS,Professor,14,4\n" +
+        "FAC_EDU_05,Dr. Maria Montessori,EDUCATION,Assistant Professor,16,4"
+      );
+    } else {
+      setCsvText(
+        "room_id,name,room_type_id,capacity,features\n" +
+        "SMART_LH_104,Multidisciplinary Lecture Hall 104,LECTURE_HALL,80,SMART_BOARD;AUDIO_VISUAL\n" +
+        "BIO_LAB_1,Cell Biology & Genetics Lab,SCIENCE_LAB,40,LAB_EQUIPMENT\n" +
+        "AI_RESEARCH_LAB,Advanced AI & Robotics Center,COMPUTER_LAB,50,HIGH_PERF_COMPUTING"
+      );
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-950 text-slate-200 font-sans">
@@ -497,7 +604,9 @@ export default function App() {
   // Maps
   const reqMap = new Map((snapshot?.requirements || []).map(r => [r.requirement_id, r]));
   const facultyMap = new Map((snapshot?.faculty || []).map(f => [f.faculty_id, f]));
+  const facMap = facultyMap;
   const roomMap = new Map((snapshot?.rooms || []).map(r => [r.room_id, r]));
+  const groupMap = new Map((snapshot?.student_groups || []).map(g => [g.group_id, g]));
 
   // Groups
   const filteredGroups = (snapshot?.student_groups || []).filter(g => {
@@ -599,7 +708,7 @@ export default function App() {
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       
       {/* 1. Official Government of Jammu & Kashmir Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border-b border-indigo-500/20 px-6 py-2.5 flex flex-wrap items-center justify-between text-xs gap-3">
+      <div className="no-print bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border-b border-indigo-500/20 px-6 py-2.5 flex flex-wrap items-center justify-between text-xs gap-3">
         <div className="flex items-center gap-2.5">
           <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30 font-bold uppercase tracking-wider text-[10px]">
             Problem Statement 25091
@@ -624,7 +733,7 @@ export default function App() {
       </div>
 
       {/* 2. Top Header & Primary View Navigation */}
-      <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur px-6 py-3.5 flex flex-wrap items-center justify-between gap-4 sticky top-0 z-30">
+      <header className="no-print border-b border-slate-800 bg-slate-900/80 backdrop-blur px-6 py-3.5 flex flex-wrap items-center justify-between gap-4 sticky top-0 z-30">
         <div className="flex items-center gap-4">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-emerald-400 flex items-center justify-center font-black text-xl text-slate-950 shadow-lg shadow-indigo-500/20">
             A
@@ -693,6 +802,16 @@ export default function App() {
             <span>Validator: <strong>{validation?.is_valid ? 'VALID (0 Clashes)' : 'INVALID'}</strong></span>
           </div>
 
+          {/* Scenario Simulation Button */}
+          <button
+            onClick={() => setShowScenarioModal(true)}
+            title="Run What-If Scenario Simulations (Faculty Absence, etc.)"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-950/60 hover:bg-amber-900/60 border border-amber-500/40 text-amber-300 text-xs font-semibold shadow-sm transition"
+          >
+            <Play className="w-3.5 h-3.5 text-amber-400" />
+            <span>Simulate Scenario</span>
+          </button>
+
           {/* AI Copilot Button */}
           <button
             onClick={() => setShowAICopilot(true)}
@@ -702,12 +821,12 @@ export default function App() {
             <span>AI Copilot</span>
           </button>
 
-          {/* Export Dropdown */}
+          {/* Export Dropdown Group */}
           <div className="flex items-center rounded-lg bg-slate-800 p-0.5 border border-slate-700">
             <button
               onClick={() => window.open('/api/export/xlsx', '_blank')}
               title="Download J&K Master Multi-Sheet Excel Workbook"
-              className="flex items-center gap-1.5 px-2.5 py-1 text-slate-200 hover:bg-slate-700 rounded text-xs font-medium transition"
+              className="flex items-center gap-1 px-2.5 py-1 text-slate-200 hover:bg-slate-700 rounded text-xs font-medium transition"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
               <span>Excel</span>
@@ -715,10 +834,26 @@ export default function App() {
             <button
               onClick={() => window.open('/api/export/csv', '_blank')}
               title="Download Active View as CSV"
-              className="flex items-center gap-1.5 px-2.5 py-1 text-slate-200 hover:bg-slate-700 rounded text-xs font-medium transition"
+              className="flex items-center gap-1 px-2 py-1 text-slate-200 hover:bg-slate-700 rounded text-xs font-medium transition"
             >
               <Download className="w-3.5 h-3.5 text-slate-400" />
               <span>CSV</span>
+            </button>
+            <button
+              onClick={() => window.open('/api/export/ams-json', '_blank')}
+              title="Export Standardized NEP 2020 Academic Management System (AMS / ERP) JSON"
+              className="flex items-center gap-1 px-2 py-1 text-slate-200 hover:bg-slate-700 rounded text-xs font-medium transition"
+            >
+              <Database className="w-3.5 h-3.5 text-purple-400" />
+              <span>AMS JSON</span>
+            </button>
+            <button
+              onClick={() => window.print()}
+              title="Print Official Timetable Circular (J&K Higher Education Department)"
+              className="flex items-center gap-1 px-2 py-1 text-slate-200 hover:bg-slate-700 rounded text-xs font-medium transition"
+            >
+              <Printer className="w-3.5 h-3.5 text-blue-400" />
+              <span>Print</span>
             </button>
           </div>
 
@@ -741,7 +876,7 @@ export default function App() {
         <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-5 animate-in fade-in duration-200">
           
           {/* Quick Notice to Go to Input Studio */}
-          <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-xl p-3 flex flex-wrap items-center justify-between text-xs text-emerald-300 gap-2">
+          <div className="no-print bg-emerald-950/20 border border-emerald-500/30 rounded-xl p-3 flex flex-wrap items-center justify-between text-xs text-emerald-300 gap-2">
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-amber-400" />
               <span>
@@ -758,7 +893,7 @@ export default function App() {
           </div>
 
           {/* NEP 2020 Multi-Program Selector Tabs */}
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="no-print bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                 <GraduationCap className="w-4 h-4 text-indigo-400" />
@@ -811,7 +946,7 @@ export default function App() {
           </div>
 
           {/* NEP Category Legend & Soft Metrics */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <div className="no-print grid grid-cols-1 lg:grid-cols-12 gap-4">
             <div className="lg:col-span-6 bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
               <div>
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5 mb-2.5">
@@ -867,7 +1002,7 @@ export default function App() {
           </div>
 
           {/* View Filter Controls */}
-          <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900/40 border border-slate-800 px-4 py-3 rounded-xl">
+          <div className="no-print flex flex-wrap items-center justify-between gap-4 bg-slate-900/40 border border-slate-800 px-4 py-3 rounded-xl">
             <div className="flex items-center flex-wrap gap-3">
               <span className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5 text-indigo-400" />
@@ -947,6 +1082,19 @@ export default function App() {
                   Click any course card to calculate clash-free target slots in real-time.
                 </span>
               )}
+            </div>
+          </div>
+
+          {/* Official Printable Circular Header (Appears only on Print / PDF export) */}
+          <div className="print-only mb-6 border-b-2 border-slate-700 pb-3 text-center">
+            <div className="text-xl font-black uppercase tracking-wider text-slate-900">Government of Jammu and Kashmir</div>
+            <div className="text-sm font-bold text-slate-800">Higher Education Department • Problem Statement ID: 25091</div>
+            <div className="text-base font-bold text-slate-900 mt-0.5">{snapshot?.institution_name || 'Govt. College of Education & Multidisciplinary Studies, J&K'}</div>
+            <div className="text-xs text-slate-600 mt-1 font-medium">
+              Autonomous Conflict-Free Academic Timetable (NEP 2020 FYUP / ITEP / B.Ed. / M.Ed.)
+            </div>
+            <div className="text-xs font-bold text-indigo-950 mt-1 uppercase tracking-wide">
+              OFFICIAL TIMETABLE CIRCULAR • {viewType === 'GROUP' ? `STUDENT COHORT: ${groupMap.get(selectedEntityId)?.name || selectedEntityId}` : viewType === 'FACULTY' ? `FACULTY MEMBER: ${facMap.get(selectedEntityId)?.name || selectedEntityId}` : `CAMPUS FACILITY: ${roomMap.get(selectedEntityId)?.name || selectedEntityId}`}
             </div>
           </div>
 
@@ -1406,7 +1554,7 @@ export default function App() {
                   </div>
                   <p className="text-[11px] text-slate-400">Course code, name, credits, theory/practical duration, and eligible teachers.</p>
                   <button 
-                    onClick={() => alert("Downloading courses_template.csv...")}
+                    onClick={() => window.open('/api/export/template/courses', '_blank')}
                     className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition"
                   >
                     Download Courses Template (.csv)
@@ -1420,7 +1568,7 @@ export default function App() {
                   </div>
                   <p className="text-[11px] text-slate-400">Faculty ID, name, department, designation, and UGC workload limit.</p>
                   <button 
-                    onClick={() => alert("Downloading faculty_template.csv...")}
+                    onClick={() => window.open('/api/export/template/faculty', '_blank')}
                     className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition"
                   >
                     Download Faculty Template (.csv)
@@ -1434,12 +1582,87 @@ export default function App() {
                   </div>
                   <p className="text-[11px] text-slate-400">Room ID, name, room type (Smart LH, Computer Lab, Pedagogy Hall), capacity.</p>
                   <button 
-                    onClick={() => alert("Downloading rooms_template.csv...")}
+                    onClick={() => window.open('/api/export/template/rooms', '_blank')}
                     className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition"
                   >
                     Download Rooms Template (.csv)
                   </button>
                 </div>
+              </div>
+
+              {/* Interactive Ingestion Form */}
+              <div className="p-5 rounded-2xl bg-slate-900/70 border border-slate-800 space-y-4">
+                <div className="flex flex-wrap items-center justify-between border-b border-slate-800 pb-3 gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400">
+                      <Upload className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-sm text-slate-200">Import CSV Data into Institutional Snapshot</h4>
+                      <p className="text-[11px] text-slate-400">Paste CSV rows below or load sample data with 1 click</p>
+                    </div>
+                  </div>
+
+                  {/* DataType Selector */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-slate-400 font-semibold">Target Entity:</span>
+                    <select
+                      value={csvType}
+                      onChange={(e) => setCsvType(e.target.value)}
+                      className="bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="COURSES">Courses Catalog</option>
+                      <option value="FACULTY">Faculty Members</option>
+                      <option value="ROOMS">Rooms & Specialized Labs</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={handleLoadSampleCsv}
+                      className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-indigo-300 text-xs font-semibold rounded-lg transition border border-indigo-500/20"
+                    >
+                      Load Sample CSV
+                    </button>
+                  </div>
+                </div>
+
+                <form onSubmit={handleCsvUpload} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-1">
+                      CSV Content (Comma-separated with headers):
+                    </label>
+                    <textarea
+                      rows={6}
+                      value={csvText}
+                      onChange={(e) => setCsvText(e.target.value)}
+                      placeholder="Paste CSV data here or click 'Load Sample CSV' above..."
+                      className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs font-mono rounded-xl p-3 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  {csvMessage && (
+                    <div className={`p-3 rounded-xl border text-xs font-medium ${
+                      csvMessage.startsWith('Error') || csvMessage.startsWith('Upload failed')
+                        ? 'bg-rose-950/40 border-rose-500/30 text-rose-300'
+                        : 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300'
+                    }`}>
+                      {csvMessage}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap justify-between items-center pt-2 gap-2">
+                    <span className="text-[11px] text-slate-500">
+                      Changes are merged into current academic snapshot and verified by the CP-SAT engine.
+                    </span>
+                    <button
+                      type="submit"
+                      disabled={csvUploading || !csvText.trim()}
+                      className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition shadow-md disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>{csvUploading ? 'Ingesting...' : 'Ingest CSV to Snapshot'}</span>
+                    </button>
+                  </div>
+                </form>
               </div>
             </div>
           )}
@@ -1919,6 +2142,95 @@ export default function App() {
               >
                 Close Workload Matrix
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: WHAT-IF SCENARIO SIMULATOR */}
+      {showScenarioModal && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400">
+                  <Play className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-100 text-sm">NEP 2020 What-If Scenario Simulator</h3>
+                  <p className="text-xs text-slate-400">Test unexpected faculty absence, emergency disruptions, or restore default state</p>
+                </div>
+              </div>
+              <button onClick={() => setShowScenarioModal(false)} className="text-slate-400 hover:text-slate-200 font-bold p-1">✕</button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-400 font-semibold mb-1">Select Scenario Simulation Type:</label>
+                <select
+                  value={scenarioType}
+                  onChange={(e) => setScenarioType(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-lg p-2.5 focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="FACULTY_ABSENCE">Emergency Faculty Absence (Sudden Leave / Sickness)</option>
+                  <option value="RESET">Reset to Official Pilot Baseline (Govt College of Education J&K)</option>
+                </select>
+              </div>
+
+              {scenarioType === 'FACULTY_ABSENCE' && (
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">Select Absent Faculty Member:</label>
+                  <select
+                    value={scenarioFacId}
+                    onChange={(e) => setScenarioFacId(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 text-slate-200 rounded-lg p-2.5 focus:outline-none focus:border-indigo-500"
+                  >
+                    {(snapshot?.faculty || []).map(f => (
+                      <option key={f.faculty_id} value={f.faculty_id}>
+                        {f.name} ({f.designation} - {f.department_id})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-amber-300/80 mt-1.5 leading-relaxed">
+                    The engine will simulate an unexpected absence for this teacher on their scheduled slots and run the minimal-perturbation stability rescheduler (CON-S-014), re-allocating affected sessions with 0 clashes.
+                  </p>
+                </div>
+              )}
+
+              {scenarioResult && (
+                <div className={`p-3 rounded-xl border text-xs leading-relaxed ${
+                  scenarioResult.success 
+                    ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-200' 
+                    : 'bg-rose-950/40 border-rose-500/30 text-rose-200'
+                }`}>
+                  <div className="font-bold mb-1">{scenarioResult.success ? '✓ Simulation Succeeded' : '✕ Simulation Failed'}</div>
+                  <div>{scenarioResult.message}</div>
+                  {scenarioResult.solve_time_seconds !== undefined && (
+                    <div className="text-[10px] text-slate-400 mt-1 font-mono">
+                      Solve time: {scenarioResult.solve_time_seconds.toFixed(3)}s • Oracle Verified: {scenarioResult.validation?.is_valid ? 'Pass (0 Clashes)' : 'Check Details'}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowScenarioModal(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  disabled={scenarioLoading}
+                  onClick={() => handleRunScenario(scenarioType)}
+                  className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-bold transition shadow-md disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  <Play className={`w-3.5 h-3.5 ${scenarioLoading ? 'animate-spin' : ''}`} />
+                  <span>{scenarioLoading ? 'Simulating...' : 'Execute Simulation'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

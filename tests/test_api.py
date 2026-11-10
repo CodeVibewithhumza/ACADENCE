@@ -65,3 +65,41 @@ def test_api_valid_targets_and_live_move():
         assert move_data["success"] is True
         assert move_data["validation"]["is_valid"] is True
 
+
+def test_api_export_templates_and_ams():
+    """Verify template CSV downloads and AMS JSON export."""
+    t_courses = client.get("/api/export/template/courses")
+    assert t_courses.status_code == 200
+    assert "course_id" in t_courses.text
+
+    t_faculty = client.get("/api/export/template/faculty")
+    assert t_faculty.status_code == 200
+    assert "faculty_id" in t_faculty.text
+
+    t_rooms = client.get("/api/export/template/rooms")
+    assert t_rooms.status_code == 200
+    assert "room_id" in t_rooms.text
+
+    ams_res = client.get("/api/export/ams-json")
+    assert ams_res.status_code == 200
+    data = ams_res.json()
+    assert data["problem_statement_id"] == "25091"
+    assert len(data["schedule"]) > 0
+
+
+def test_api_scenario_simulation():
+    """Verify dynamic scenario simulation of unexpected faculty absence."""
+    sim_res = client.post("/api/simulate-scenario", json={
+        "scenario_type": "FACULTY_ABSENCE",
+        "entity_id": "FAC_CS_01",
+    })
+    assert sim_res.status_code == 200
+    data = sim_res.json()
+    assert data["success"] is True
+    assert "Dr. Alan Turing" in data["message"] or "Emergency" in data["scenario"]
+    assert data["validation"]["is_valid"] is True
+
+    # Reset
+    reset_res = client.post("/api/simulate-scenario", json={"scenario_type": "RESET"})
+    assert reset_res.status_code == 200
+

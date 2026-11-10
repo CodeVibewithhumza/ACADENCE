@@ -140,14 +140,47 @@ def reschedule_for_faculty_absence(
         if len(intervals) > 1:
             model.AddNoOverlap(intervals)
 
+    # Student group leaf-path NoOverlap (exclude parallel non-anchors per CON-H-011)
+    parallel_non_anchors = set()
+    for eg in snapshot.elective_groups:
+        if eg.mode == "PARALLEL" and len(eg.member_requirement_ids) > 1:
+            for other_req_id in eg.member_requirement_ids[1:]:
+                parallel_non_anchors.add(other_req_id)
+
     for path_groups in compiled.leaf_paths.values():
         group_intervals = [
             interval_vars[inst.instance_id]
             for inst in compiled.instances
-            if set(inst.audience_group_ids) & path_groups
+            if (set(inst.audience_group_ids) & path_groups) and (inst.requirement_id not in parallel_non_anchors)
         ]
         if len(group_intervals) > 1:
             model.AddNoOverlap(group_intervals)
+
+    # CON-H-011: Parallel Elective Alignment
+    for eg in snapshot.elective_groups:
+        if eg.mode == "PARALLEL" and len(eg.member_requirement_ids) > 1:
+            req_inst_map: Dict[str, List[str]] = {}
+            for req_id in eg.member_requirement_ids:
+                req_inst_map[req_id] = [
+                    inst.instance_id for inst in compiled.instances if inst.requirement_id == req_id
+                ]
+            first_req_id = eg.member_requirement_ids[0]
+            num_sessions = len(req_inst_map.get(first_req_id, []))
+            for k in range(num_sessions):
+                anchor_inst_id = req_inst_map[first_req_id][k]
+                for other_req_id in eg.member_requirement_ids[1:]:
+                    if k < len(req_inst_map.get(other_req_id, [])):
+                        other_inst_id = req_inst_map[other_req_id][k]
+                        model.Add(start_vars[anchor_inst_id] == start_vars[other_inst_id])
+
+    # CON-H-012: Declared CANNOT_OVERLAP pairs
+    for cr in snapshot.course_relationships:
+        if cr.relationship_type == "CANNOT_OVERLAP":
+            insts_a = [inst.instance_id for inst in compiled.instances if inst.requirement_id == cr.requirement_id_a]
+            insts_b = [inst.instance_id for inst in compiled.instances if inst.requirement_id == cr.requirement_id_b]
+            for ia in insts_a:
+                for ib in insts_b:
+                    model.AddNoOverlap([interval_vars[ia], interval_vars[ib]])
 
     # Minimize disruptions (CON-S-014)
     if moved_penalties:

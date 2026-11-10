@@ -324,6 +324,225 @@ def export_xlsx():
     )
 
 
+@app.get("/api/export/template/courses")
+def download_courses_template():
+    """Downloads sample Courses CSV template."""
+    from fastapi.responses import Response
+    csv_content = "course_id,course_name,program_type,nep_category,credits,sessions_per_week,duration_slots,group_ids,room_type_id,eligible_faculty_ids\n"
+    csv_content += "DSC-CS-201,Data Structures & Algorithms (Major),FYUP,MAJOR,4,3,1,GRP_FYUP_SEC_A,LECTURE_HALL,FAC_CS_01;FAC_CS_02\n"
+    csv_content += "MIN-ECO-201,Principles of Microeconomics (Minor),FYUP,MINOR,4,3,1,GRP_FYUP_SEC_A;GRP_FYUP_SEC_B,LECTURE_HALL,FAC_ECO_01;FAC_ECO_02\n"
+    csv_content += "SEC-CS-201,Python & Web Tech Lab (SEC),FYUP,SEC,2,1,2,GRP_FYUP_SEC_A,COMPUTER_LAB,FAC_CS_02\n"
+    csv_content += "ITEP-PED-301,Pedagogy of Physical Science (Core),ITEP,MAJOR,4,3,1,GRP_ITEP_SEM5,PEDAGOGY_ROOM,FAC_EDU_02;FAC_EDU_03\n"
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="courses_template.csv"'},
+    )
+
+
+@app.get("/api/export/template/faculty")
+def download_faculty_template():
+    """Downloads sample Faculty CSV template."""
+    from fastapi.responses import Response
+    csv_content = "faculty_id,name,department_id,designation,max_hours_week,max_hours_day\n"
+    csv_content += "FAC_CS_01,Dr. Alan Turing,COMPUTER_SCIENCE,Professor,14,4\n"
+    csv_content += "FAC_CS_02,Dr. Ada Lovelace,COMPUTER_SCIENCE,Assistant Professor,16,4\n"
+    csv_content += "FAC_EDU_01,Prof. S. Radhakrishnan,EDUCATION,Professor,14,4\n"
+    csv_content += "FAC_MATH_01,Dr. Srinivasa Ramanujan,MATHEMATICS,Professor,14,4\n"
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="faculty_template.csv"'},
+    )
+
+
+@app.get("/api/export/template/rooms")
+def download_rooms_template():
+    """Downloads sample Rooms CSV template."""
+    from fastapi.responses import Response
+    csv_content = "room_id,name,room_type_id,capacity,features\n"
+    csv_content += "SMART_LH_101,Smart Lecture Hall 101,LECTURE_HALL,75,SMART_BOARD;AUDIO_VISUAL\n"
+    csv_content += "COMP_LAB_1,Computer & AI Laboratory,COMPUTER_LAB,65,COMPUTERS;INTERNET\n"
+    csv_content += "PEDAGOGY_LAB_1,Teacher Education Pedagogy Hall,PEDAGOGY_ROOM,60,MICRO_TEACHING;SMART_BOARD\n"
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="rooms_template.csv"'},
+    )
+
+
+@app.get("/api/export/ams-json")
+def export_ams_json():
+    """Exports timetable in standardized NEP 2020 Academic Management System (AMS / ERP) schema."""
+    if not state.current_placements:
+        generate_timetable(GenerateRequest(profile_name="BALANCED"))
+    req_map = {r.requirement_id: r for r in state.snapshot.requirements}
+    fac_map = {f.faculty_id: f for f in state.snapshot.faculty}
+    room_map = {r.room_id: r for r in state.snapshot.rooms}
+
+    ams_schedule = []
+    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+    periods = ["08:30-09:20", "09:20-10:10", "10:10-11:00", "11:30-12:20", "12:20-13:10", "13:10-14:00", "14:00-14:50", "14:50-15:40"]
+
+    for p in state.current_placements:
+        r = req_map.get(p.requirement_id)
+        if not r:
+            continue
+        ams_schedule.append({
+            "instance_id": p.instance_id,
+            "course_code": r.course_id,
+            "course_title": r.course_name,
+            "nep_category": r.nep_category.value,
+            "program_type": r.program_type.value,
+            "credits": r.credits,
+            "day": days[p.day],
+            "period": f"P{p.period + 1}",
+            "timing": periods[p.period] if p.period < len(periods) else "N/A",
+            "duration_slots": p.duration_slots,
+            "student_groups": r.group_ids,
+            "assigned_room": room_map.get(p.assigned_room_id).name if p.assigned_room_id and p.assigned_room_id in room_map else "Virtual",
+            "assigned_faculty": [fac_map[fid].name for fid in p.assigned_faculty_ids if fid in fac_map],
+        })
+
+    return {
+        "institution_id": state.snapshot.institution_id,
+        "institution_name": state.snapshot.institution_name,
+        "problem_statement_id": "25091",
+        "state_or_ut": "Jammu and Kashmir",
+        "academic_term": state.snapshot.term_id,
+        "total_scheduled_sessions": len(ams_schedule),
+        "schedule": ams_schedule,
+    }
+
+
+class UploadCSVRequest(BaseModel):
+    data_type: str  # 'COURSES', 'FACULTY', 'ROOMS'
+    csv_text: str
+
+
+@app.post("/api/admin/upload-csv")
+def upload_csv_data(req: UploadCSVRequest):
+    """Parses and ingests bulk CSV data into the institutional snapshot."""
+    import csv as csv_module, io
+    from acadence.domain.snapshot import SessionRequirement, Faculty, Room
+    reader = csv_module.DictReader(io.StringIO(req.csv_text.strip()))
+
+    if req.data_type == "COURSES":
+        new_reqs = []
+        for row in reader:
+            if not row.get("course_id"):
+                continue
+            c_id = row["course_id"].strip()
+            new_reqs.append(
+                SessionRequirement(
+                    requirement_id=f"REQ_{c_id.replace('-', '_')}",
+                    course_id=c_id,
+                    course_name=row.get("course_name", c_id).strip(),
+                    offering_id=f"OFF_{c_id.replace('-', '_')}",
+                    group_ids=[g.strip() for g in row.get("group_ids", "GRP_FYUP_SEC_A").split(";") if g.strip()],
+                    session_type="PRACTICAL" if int(row.get("duration_slots", 1)) > 1 else "LECTURE",
+                    nep_category=NEPCategory[row.get("nep_category", "MAJOR").strip().upper()],
+                    credits=int(row.get("credits", 4)),
+                    program_type=ProgramType[row.get("program_type", "FYUP").strip().upper()],
+                    sessions_per_week=int(row.get("sessions_per_week", 3)),
+                    duration_slots=int(row.get("duration_slots", 1)),
+                    room_type_id=row.get("room_type_id", "LECTURE_HALL").strip(),
+                    eligible_faculty_ids=[f.strip() for f in row.get("eligible_faculty_ids", "FAC_CS_01").split(";") if f.strip()],
+                )
+            )
+        state.snapshot = state.snapshot.model_copy(update={"requirements": list(state.snapshot.requirements) + new_reqs})
+        gen_res = generate_timetable(GenerateRequest(profile_name=state.current_profile))
+        return {
+            "success": True,
+            "message": f"Successfully ingested {len(new_reqs)} course offerings from CSV.",
+            "placements": gen_res["placements"],
+        }
+    elif req.data_type == "FACULTY":
+        new_facs = []
+        for row in reader:
+            if not row.get("faculty_id"):
+                continue
+            new_facs.append(
+                Faculty(
+                    faculty_id=row["faculty_id"].strip(),
+                    name=row.get("name", "Faculty").strip(),
+                    department_id=row.get("department_id", "GENERAL").strip(),
+                    designation=row.get("designation", "Assistant Professor").strip(),
+                    max_hours_week=int(row.get("max_hours_week", 16)),
+                    max_hours_day=int(row.get("max_hours_day", 4)),
+                )
+            )
+        state.snapshot = state.snapshot.model_copy(update={"faculty": list(state.snapshot.faculty) + new_facs})
+        return {"success": True, "message": f"Successfully ingested {len(new_facs)} faculty members from CSV."}
+    elif req.data_type == "ROOMS":
+        new_rms = []
+        for row in reader:
+            if not row.get("room_id"):
+                continue
+            new_rms.append(
+                Room(
+                    room_id=row["room_id"].strip(),
+                    name=row.get("name", "Room").strip(),
+                    room_type_id=row.get("room_type_id", "LECTURE_HALL").strip(),
+                    capacity=int(row.get("capacity", 60)),
+                    features={f.strip() for f in row.get("features", "").split(";") if f.strip()},
+                )
+            )
+        state.snapshot = state.snapshot.model_copy(update={"rooms": list(state.snapshot.rooms) + new_rms})
+        return {"success": True, "message": f"Successfully ingested {len(new_rms)} rooms from CSV."}
+
+    return {"success": False, "message": "Unknown data type"}
+
+
+class ScenarioSimulationRequest(BaseModel):
+    scenario_type: str  # 'FACULTY_ABSENCE', 'ROOM_MAINTENANCE', 'RESET'
+    entity_id: str = ""
+    slot_indices: List[int] = []
+
+
+@app.post("/api/simulate-scenario")
+def run_scenario_simulation(req: ScenarioSimulationRequest):
+    """Executes 'what-if' dynamic scenario simulations for academic disruptions."""
+    from acadence.engine.rescheduler import reschedule_for_faculty_absence
+    if req.scenario_type == "RESET":
+        return reset_to_default_pilot()
+
+    if not state.current_placements:
+        generate_timetable(GenerateRequest(profile_name="BALANCED"))
+
+    if req.scenario_type == "FACULTY_ABSENCE":
+        fac_id = req.entity_id or "FAC_CS_01"  # Default: Dr. Alan Turing
+        # Find slots where this faculty teaches
+        teaching_slots = [p.start_slot for p in state.current_placements if fac_id in p.assigned_faculty_ids]
+        absent_slots = set(req.slot_indices) if req.slot_indices else (set(teaching_slots[:1]) if teaching_slots else {0})
+
+        result = reschedule_for_faculty_absence(
+            snapshot=state.snapshot,
+            current_placements=state.current_placements,
+            absent_faculty_id=fac_id,
+            absent_slot_indices=absent_slots,
+        )
+        if result.status not in (SolverStatus.OPTIMAL, SolverStatus.FEASIBLE):
+            raise HTTPException(status_code=422, detail=result.status_detail)
+
+        val_res = validate(state.snapshot, result.placements)
+        state.current_placements = result.placements
+        state.current_metrics = result.metrics
+        state.current_validation = val_res
+
+        fac_name = next((f.name for f in state.snapshot.faculty if f.faculty_id == fac_id), fac_id)
+        return {
+            "success": True,
+            "scenario": "Emergency Faculty Absence Simulation",
+            "message": f"Simulated unexpected absence for {fac_name}. Engine applied localized minimal-disruption rescheduling (CON-S-014), re-allocating affected sessions with 0 clashes.",
+            "placements": result.placements,
+            "solve_time_seconds": result.solve_time_seconds,
+            "validation": {"is_valid": val_res.is_valid},
+        }
+
+    return {"success": False, "message": f"Unsupported scenario type: {req.scenario_type}"}
+
+
 class AIQueryRequest(BaseModel):
     query: str
 

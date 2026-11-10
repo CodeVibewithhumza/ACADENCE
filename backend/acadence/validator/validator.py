@@ -10,6 +10,7 @@ from acadence.domain.snapshot import ConfigSnapshot, Placement
 from acadence.validator.report import ValidationReport, ValidationViolation
 
 
+
 def validate(
     snapshot: ConfigSnapshot,
     placements: List[Placement],

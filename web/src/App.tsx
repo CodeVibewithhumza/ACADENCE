@@ -5,7 +5,7 @@ import {
   Download, FileSpreadsheet, Bot, Send, Check,
   BookOpen, GraduationCap, GitFork, Cpu, Globe, Shield,
   Building2, Clock, Plus, Trash2, Settings, Upload, Database,
-  UserCheck, Calendar, Printer, Play
+  UserCheck, Calendar, Printer, Play, BarChart2, Activity
 } from 'lucide-react';
 
 interface MetricReport {
@@ -165,6 +165,16 @@ export default function App() {
   const [csvText, setCsvText] = useState<string>('');
   const [csvUploading, setCsvUploading] = useState<boolean>(false);
   const [csvMessage, setCsvMessage] = useState<string | null>(null);
+
+  // Diagnostics Modal State (UI-018 / Section 13)
+  const [showDiagnosticsModal, setShowDiagnosticsModal] = useState<boolean>(false);
+  const [diagnosticsData, setDiagnosticsData] = useState<any>(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState<boolean>(false);
+
+  // Compare Alternatives Modal State (UI-016 / Section 11)
+  const [showCompareModal, setShowCompareModal] = useState<boolean>(false);
+  const [compareData, setCompareData] = useState<Record<string, any> | null>(null);
+  const [compareLoading, setCompareLoading] = useState<boolean>(false);
 
   // AI Assistant Copilot
   const [showAICopilot, setShowAICopilot] = useState<boolean>(false);
@@ -585,6 +595,43 @@ export default function App() {
     }
   }
 
+  async function handleOpenDiagnostics() {
+    setShowDiagnosticsModal(true);
+    setDiagnosticsLoading(true);
+    try {
+      const res = await fetch('/api/diagnostics');
+      const data = await res.json();
+      setDiagnosticsData(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setDiagnosticsLoading(false);
+    }
+  }
+
+  async function handleOpenCompare() {
+    setShowCompareModal(true);
+    setCompareLoading(true);
+    try {
+      const res = await fetch('/api/compare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      setCompareData(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setCompareLoading(false);
+    }
+  }
+
+  async function handleApplyComparedProfile(profileKey: string) {
+    setActiveProfile(profileKey);
+    setShowCompareModal(false);
+    await handleGenerate(profileKey);
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-950 text-slate-200 font-sans">
@@ -802,6 +849,26 @@ export default function App() {
             <span>Validator: <strong>{validation?.is_valid ? 'VALID (0 Clashes)' : 'INVALID'}</strong></span>
           </div>
 
+          {/* Diagnostics Button (UI-018 / Section 13) */}
+          <button
+            onClick={handleOpenDiagnostics}
+            title="View Infeasibility Diagnostics & Pre-Solve Capacity Analysis (UI-018)"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-500/40 text-cyan-300 text-xs font-semibold shadow-sm transition"
+          >
+            <Activity className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Diagnostics</span>
+          </button>
+
+          {/* Compare Alternatives Button (UI-016 / Section 11) */}
+          <button
+            onClick={handleOpenCompare}
+            title="Compare Objective Profiles & Alternatives (UI-016)"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-pink-950/60 hover:bg-pink-900/60 border border-pink-500/40 text-pink-300 text-xs font-semibold shadow-sm transition"
+          >
+            <BarChart2 className="w-3.5 h-3.5 text-pink-400" />
+            <span>Compare Profiles</span>
+          </button>
+
           {/* Scenario Simulation Button */}
           <button
             onClick={() => setShowScenarioModal(true)}
@@ -855,6 +922,27 @@ export default function App() {
               <Printer className="w-3.5 h-3.5 text-blue-400" />
               <span>Print</span>
             </button>
+          </div>
+
+          {/* Profile Selector (UI-014 / Section 11) */}
+          <div className="flex items-center gap-1.5 bg-slate-800/90 px-2 py-1 rounded-lg border border-slate-700">
+            <span className="text-[10px] uppercase font-bold text-slate-400">Profile:</span>
+            <select
+              value={activeProfile}
+              onChange={(e) => {
+                const newProfile = e.target.value;
+                setActiveProfile(newProfile);
+                handleGenerate(newProfile);
+              }}
+              disabled={solving}
+              aria-label="Optimization Profile"
+              className="bg-transparent text-slate-200 text-xs font-semibold focus:outline-none cursor-pointer"
+            >
+              <option value="BALANCED" className="bg-slate-900 text-slate-200">Balanced (Default)</option>
+              <option value="FACULTY_FRIENDLY" className="bg-slate-900 text-slate-200">Faculty-Friendly</option>
+              <option value="STUDENT_FRIENDLY" className="bg-slate-900 text-slate-200">Student-Friendly</option>
+              <option value="SPACE_EFFICIENT" className="bg-slate-900 text-slate-200">Space-Efficient</option>
+            </select>
           </div>
 
           {/* Re-Optimize Button */}
@@ -2353,6 +2441,285 @@ export default function App() {
                   <Send className="w-4 h-4" />
                 </button>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* UI-018: INFEASIBILITY DIAGNOSTICS & PRE-SOLVE CAPACITY MODAL             */}
+      {/* ========================================================================= */}
+      {showDiagnosticsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-cyan-500/30 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-5 text-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
+                  <Activity className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    Infeasibility Diagnostics
+                    <span className="text-[10px] font-mono uppercase bg-cyan-950 text-cyan-400 px-2 py-0.5 rounded border border-cyan-800">
+                      UI-018 / Section 13
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400">Pre-solve capacity verification, Hall's marriage bottleneck analysis & relaxation advisor</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowDiagnosticsModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            {diagnosticsLoading ? (
+              <div className="py-12 flex flex-col items-center justify-center space-y-3 text-slate-400">
+                <RefreshCw className="w-8 h-8 animate-spin text-cyan-400" />
+                <p className="text-sm">Running algebraic capacity analysis and conflict group isolation...</p>
+              </div>
+            ) : diagnosticsData ? (
+              <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+                {/* Feasibility Status Headline */}
+                <div className={`p-4 rounded-xl border flex items-start gap-3 ${
+                  diagnosticsData.is_feasible
+                    ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
+                    : 'bg-rose-950/40 border-rose-500/40 text-rose-200'
+                }`}>
+                  <ShieldCheck className={`w-5 h-5 mt-0.5 ${diagnosticsData.is_feasible ? 'text-emerald-400' : 'text-rose-400'}`} />
+                  <div>
+                    <h4 className="text-sm font-bold">
+                      {diagnosticsData.is_feasible
+                        ? 'Timetable Space is Feasible (Zero Algebraic Bottlenecks)'
+                        : 'No Feasible Timetable Found (Hard Constraints Conflict)'}
+                    </h4>
+                    <p className="text-xs text-slate-300 mt-1">{diagnosticsData.summary}</p>
+                  </div>
+                </div>
+
+                {/* Pre-solve findings & Bottlenecks */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Pre-Solve Analysis & Bottlenecks</h4>
+                  {diagnosticsData.bottlenecks && diagnosticsData.bottlenecks.length > 0 ? (
+                    <div className="space-y-2">
+                      {diagnosticsData.bottlenecks.map((b: any, idx: number) => (
+                        <div key={idx} className="p-3 bg-slate-950 border border-rose-900/60 rounded-lg text-xs space-y-1">
+                          <div className="flex items-center justify-between font-bold text-rose-400">
+                            <span>{b.component || 'Conflict Group'}</span>
+                            <span className="text-[10px] font-mono uppercase bg-rose-950 px-1.5 py-0.5 rounded text-rose-300">
+                              {b.constraint_code || 'CON-H'}
+                            </span>
+                          </div>
+                          <p className="text-slate-300">{b.message}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-300 flex items-center gap-2">
+                      <Check className="w-4 h-4 text-emerald-400" />
+                      <span>All room, faculty, and student cohort capacities satisfy Hall's Marriage Theorem condition across all timeslots.</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Suggested Relaxations */}
+                {diagnosticsData.suggested_relaxations && diagnosticsData.suggested_relaxations.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Guided Relaxations & Recommendations</h4>
+                    <div className="space-y-2">
+                      {diagnosticsData.suggested_relaxations.map((rel: any, idx: number) => (
+                        <div key={idx} className="p-3 bg-slate-950 border border-amber-900/50 rounded-lg text-xs space-y-1">
+                          <div className="font-bold text-amber-300">{rel.action || rel.title || `Relaxation Step #${idx+1}`}</div>
+                          <p className="text-slate-300">{rel.detail || rel.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Method Limits Note */}
+                <div className="p-3 bg-slate-950/60 border border-slate-800/80 rounded-lg text-[11px] text-slate-400 italic">
+                  <strong>Method Limits Note (ACADENCE Blueprint §13):</strong> Diagnostic isolation evaluates bipartite matching bounds, faculty supply-demand, and room type coverage before CP-SAT branch-and-bound search.
+                </div>
+              </div>
+            ) : null}
+
+            <div className="flex justify-end pt-3 border-t border-slate-800">
+              <button
+                onClick={() => setShowDiagnosticsModal(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition"
+              >
+                Close Diagnostics
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* UI-016: OBJECTIVE PROFILE ALTERNATIVE COMPARISON MODAL                    */}
+      {/* ========================================================================= */}
+      {showCompareModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-pink-500/30 rounded-2xl max-w-5xl w-full p-6 shadow-2xl space-y-5 text-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-pink-500/10 border border-pink-500/30 text-pink-400">
+                  <BarChart2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    Objective Alternative Comparison
+                    <span className="text-[10px] font-mono uppercase bg-pink-950 text-pink-400 px-2 py-0.5 rounded border border-pink-800">
+                      UI-016 / Section 11
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400">Multi-objective Pareto evaluation across calibrated NEP 2020 optimization profiles</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowCompareModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            {compareLoading ? (
+              <div className="py-16 flex flex-col items-center justify-center space-y-3 text-slate-400">
+                <RefreshCw className="w-8 h-8 animate-spin text-pink-400" />
+                <p className="text-sm">Solving CP-SAT models concurrently across 4 seeded profiles...</p>
+                <p className="text-xs text-slate-500">Evaluating BALANCED, FACULTY_FRIENDLY, STUDENT_FRIENDLY, and SPACE_EFFICIENT profiles</p>
+              </div>
+            ) : compareData ? (
+              <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
+                {/* 4 Cards Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {Object.entries(compareData).map(([key, item]: [string, any]) => {
+                    const isSelected = activeProfile === key;
+                    return (
+                      <div
+                        key={key}
+                        className={`rounded-xl border p-4 flex flex-col justify-between transition ${
+                          isSelected
+                            ? 'bg-indigo-950/30 border-indigo-500 shadow-lg shadow-indigo-500/10'
+                            : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-white uppercase tracking-wider">{item.profile_name}</span>
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                              item.is_valid
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                            }`}>
+                              {item.is_valid ? 'VALID' : 'INVALID'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-400 leading-tight">{item.description}</p>
+
+                          <div className="pt-2 border-t border-slate-800/80 space-y-1.5 text-xs">
+                            <div className="flex justify-between text-slate-400">
+                              <span>Solve Time:</span>
+                              <span className="font-mono text-slate-200">{item.solve_time_seconds.toFixed(2)}s</span>
+                            </div>
+                            <div className="flex justify-between text-slate-400">
+                              <span>Faculty Gaps:</span>
+                              <span className="font-mono text-slate-200">{item.metrics?.faculty_gaps ?? 0}</span>
+                            </div>
+                            <div className="flex justify-between text-slate-400">
+                              <span>Student Gaps:</span>
+                              <span className="font-mono text-slate-200">{item.metrics?.student_gaps ?? 0}</span>
+                            </div>
+                            <div className="flex justify-between text-slate-400">
+                              <span>Room Waste:</span>
+                              <span className="font-mono text-slate-200">{item.metrics?.room_capacity_waste ?? 0} seats</span>
+                            </div>
+                            <div className="flex justify-between text-slate-400">
+                              <span>Rooms Used:</span>
+                              <span className="font-mono text-slate-200">{item.metrics?.rooms_used ?? 0}</span>
+                            </div>
+                            <div className="flex justify-between text-indigo-300 font-semibold pt-1 border-t border-slate-800">
+                              <span>Composite Score:</span>
+                              <span className="font-mono">{item.metrics?.composite_score ?? 0}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => handleApplyComparedProfile(key)}
+                          className={`mt-4 w-full py-2 px-3 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
+                            isSelected
+                              ? 'bg-indigo-600 text-white cursor-default'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+                          }`}
+                        >
+                          {isSelected ? (
+                            <>
+                              <Check className="w-3.5 h-3.5" />
+                              Active Alternative
+                            </>
+                          ) : (
+                            'Apply Alternative'
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Cross-Evaluation Matrix / Summary Table */}
+                <div className="mt-4 p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                    Cross-Evaluation Trade-off Matrix (Master Documentation §11)
+                  </h4>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-900 text-slate-400 font-semibold border-b border-slate-800">
+                        <tr>
+                          <th className="p-2">Profile</th>
+                          <th className="p-2">Faculty Gaps (CON-S-001)</th>
+                          <th className="p-2">Student Gaps (CON-S-002)</th>
+                          <th className="p-2">Room Waste (CON-S-003)</th>
+                          <th className="p-2">Peak Daily Load (CON-S-005)</th>
+                          <th className="p-2">Composite Score</th>
+                          <th className="p-2">Pareto Characteristic</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800 text-slate-300">
+                        {Object.entries(compareData).map(([key, item]: [string, any]) => (
+                          <tr key={key} className={activeProfile === key ? 'bg-indigo-950/20' : ''}>
+                            <td className="p-2 font-bold text-white">{item.profile_name}</td>
+                            <td className="p-2 font-mono">{item.metrics?.faculty_gaps ?? 0}</td>
+                            <td className="p-2 font-mono">{item.metrics?.student_gaps ?? 0}</td>
+                            <td className="p-2 font-mono">{item.metrics?.room_capacity_waste ?? 0}</td>
+                            <td className="p-2 font-mono">{item.metrics?.peak_daily_load ?? 0}</td>
+                            <td className="p-2 font-mono text-indigo-400 font-bold">{item.metrics?.composite_score ?? 0}</td>
+                            <td className="p-2 text-slate-400">
+                              {key === 'BALANCED' && 'Balanced trade-off across all stakeholders'}
+                              {key === 'FACULTY_FRIENDLY' && 'Minimum faculty waiting gaps & fatigue'}
+                              {key === 'STUDENT_FRIENDLY' && 'Compact daily schedules for FYUP & B.Ed.'}
+                              {key === 'SPACE_EFFICIENT' && 'Consolidated room usage & high occupancy'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="flex justify-end pt-3 border-t border-slate-800">
+              <button
+                onClick={() => setShowCompareModal(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition"
+              >
+                Close Comparison
+              </button>
             </div>
           </div>
         </div>

@@ -360,6 +360,103 @@ def validate(
                         )
                     )
 
+    # 7. VAL-009: Faculty Workload Limits (Weekly & Daily)
+    for f in snapshot.faculty:
+        fac_placements = [p for p in placements if f.faculty_id in p.assigned_faculty_ids]
+        total_weekly_hours = sum(p.duration_slots for p in fac_placements)
+        if total_weekly_hours > f.max_hours_week:
+            violations.append(
+                ValidationViolation(
+                    check_id="VAL-009",
+                    entity_type="FACULTY",
+                    entity_id=f.faculty_id,
+                    message=f"Faculty {f.name} ({f.faculty_id}) assigned {total_weekly_hours}h exceeding weekly UGC limit {f.max_hours_week}h.",
+                )
+            )
+
+        # Check daily cap
+        daily_hours: Dict[int, int] = defaultdict(int)
+        for p in fac_placements:
+            st = slot_map.get(p.start_slot)
+            if st:
+                daily_hours[st.day] += p.duration_slots
+
+        for day_idx, d_hours in daily_hours.items():
+            if d_hours > f.max_hours_day:
+                violations.append(
+                    ValidationViolation(
+                        check_id="VAL-009",
+                        entity_type="FACULTY",
+                        entity_id=f.faculty_id,
+                        message=f"Faculty {f.name} ({f.faculty_id}) assigned {d_hours}h on day {day_idx} exceeding daily limit {f.max_hours_day}h.",
+                    )
+                )
+
+    # 8. VAL-012: Declared CANNOT_OVERLAP Pairs
+    for cr in snapshot.course_relationships:
+        if cr.relationship_type == "CANNOT_OVERLAP":
+            p_a = [p for p in placements if p.requirement_id == cr.requirement_id_a]
+            p_b = [p for p in placements if p.requirement_id == cr.requirement_id_b]
+            for inst_a in p_a:
+                span_a = set(range(inst_a.start_slot, inst_a.start_slot + inst_a.duration_slots))
+                for inst_b in p_b:
+                    span_b = set(range(inst_b.start_slot, inst_b.start_slot + inst_b.duration_slots))
+                    if span_a & span_b:
+                        violations.append(
+                            ValidationViolation(
+                                check_id="VAL-012",
+                                entity_type="DECLARED_PAIR",
+                                entity_id=f"{cr.requirement_id_a}_{cr.requirement_id_b}",
+                                message=f"Declared CANNOT_OVERLAP pair collision: {inst_a.instance_id} overlaps with {inst_b.instance_id} at {span_a & span_b}.",
+                            )
+                        )
+
+    # 9. VAL-014: Configured Maximum Sessions Per Day
+    for req in snapshot.requirements:
+        max_daily = getattr(req, "max_sessions_per_day", None)
+        if max_daily is not None and max_daily > 0:
+            req_placements = [p for p in placements if p.requirement_id == req.requirement_id]
+            day_counts: Dict[int, int] = defaultdict(int)
+            for p in req_placements:
+                st = slot_map.get(p.start_slot)
+                if st:
+                    day_counts[st.day] += 1
+            for d_idx, c in day_counts.items():
+                if c > max_daily:
+                    violations.append(
+                        ValidationViolation(
+                            check_id="VAL-014",
+                            entity_type="REQUIREMENT",
+                            entity_id=req.requirement_id,
+                            message=f"Requirement {req.course_id} scheduled {c} times on day {d_idx}, exceeding max_per_day={max_daily}.",
+                        )
+                    )
+
+    # 10. VAL-018: Completeness & Consistency Check
+    for req in snapshot.requirements:
+        actual_count = sum(1 for p in placements if p.requirement_id == req.requirement_id)
+        if actual_count != req.sessions_per_week:
+            violations.append(
+                ValidationViolation(
+                    check_id="VAL-018",
+                    entity_type="REQUIREMENT",
+                    entity_id=req.requirement_id,
+                    message=f"Requirement {req.course_id} has {actual_count} sessions scheduled, expected {req.sessions_per_week}.",
+                )
+            )
+
+    # 11. VAL-021: Snapshot Cryptographic Hash Integrity Check
+    snap_hash = snapshot.compute_hash()
+    if not snap_hash:
+        violations.append(
+            ValidationViolation(
+                check_id="VAL-021",
+                entity_type="SNAPSHOT",
+                entity_id=snapshot.snapshot_id,
+                message="Snapshot cryptographic integrity check failed: empty hash.",
+            )
+        )
+
     status = ValidationStatus.VALID if len(violations) == 0 else ValidationStatus.INVALID
     return ValidationReport(status=status, violations=violations)
 

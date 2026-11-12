@@ -182,6 +182,52 @@ def reschedule_for_faculty_absence(
                 for ib in insts_b:
                     model.AddNoOverlap([interval_vars[ia], interval_vars[ib]])
 
+    # CON-H-009: Faculty Workload Limits (Weekly and Daily)
+    for fac in snapshot.faculty:
+        weekly_terms = [
+            inst.duration_slots * a[inst.instance_id][fac.faculty_id]
+            for inst in compiled.instances
+            if fac.faculty_id in a[inst.instance_id]
+        ]
+        if weekly_terms:
+            model.Add(sum(weekly_terms) <= fac.max_hours_week)
+
+        for d in range(grid.num_days):
+            day_terms = []
+            for inst in compiled.instances:
+                if fac.faculty_id not in a[inst.instance_id]:
+                    continue
+                day_starts = [
+                    st[inst.instance_id][s]
+                    for s in inst.valid_starts
+                    if s // periods_per_day == d
+                ]
+                if not day_starts:
+                    continue
+                on_day = sum(day_starts)
+                if len(inst.eligible_faculty_ids) == 1:
+                    day_terms.append(inst.duration_slots * on_day)
+                else:
+                    z_var = model.NewBoolVar(f"resched_z_{inst.instance_id}_{fac.faculty_id}_{d}")
+                    model.AddMultiplicationEquality(z_var, [on_day, a[inst.instance_id][fac.faculty_id]])
+                    day_terms.append(inst.duration_slots * z_var)
+            if day_terms:
+                model.Add(sum(day_terms) <= fac.max_hours_day)
+
+    # CON-H-014: Maximum sessions per day for a requirement
+    for req in snapshot.requirements:
+        max_daily = getattr(req, "max_sessions_per_day", None)
+        if max_daily is not None and max_daily > 0:
+            req_inst_ids = [inst.instance_id for inst in compiled.instances if inst.requirement_id == req.requirement_id]
+            for d in range(grid.num_days):
+                day_terms = []
+                for i_id in req_inst_ids:
+                    day_starts = [st[i_id][s] for s in st[i_id] if s // periods_per_day == d]
+                    if day_starts:
+                        day_terms.append(sum(day_starts))
+                if day_terms:
+                    model.Add(sum(day_terms) <= max_daily)
+
     # Minimize disruptions (CON-S-014)
     if moved_penalties:
         model.Minimize(sum(moved_penalties))

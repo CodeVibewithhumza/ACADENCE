@@ -21,7 +21,6 @@ class AIProposal(BaseModel):
     new_day: Optional[str] = None
     new_period: Optional[str] = None
 
-
 class AIResponse(BaseModel):
     query: str
     reply: str

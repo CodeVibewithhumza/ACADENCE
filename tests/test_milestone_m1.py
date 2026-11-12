@@ -155,3 +155,33 @@ def test_validator_catches_faculty_unavailability():
     assert not report.is_valid
     assert any(v.check_id == "VAL-007" for v in report.violations)
 
+
+def test_validator_catches_workload_exceeded():
+    """Fault injection: assigning a faculty member beyond their daily cap must trigger VAL-009."""
+    snapshot = generate_tier_s_snapshot(seed=1)
+    result = solve(snapshot, SolverParameters(time_limit_seconds=10.0))
+    assert result.status in (SolverStatus.OPTIMAL, SolverStatus.FEASIBLE)
+
+    corrupted_placements = [p.model_copy() for p in result.placements]
+    # Set faculty limit to 1h daily
+    snap_copy = snapshot.model_copy(deep=True)
+    snap_copy.faculty[0].max_hours_day = 1
+
+    report = validate(snap_copy, corrupted_placements)
+    assert not report.is_valid
+    assert any(v.check_id == "VAL-009" for v in report.violations)
+
+
+def test_validator_catches_session_incompleteness():
+    """Fault injection: missing a scheduled session must trigger VAL-018."""
+    snapshot = generate_tier_s_snapshot(seed=1)
+    result = solve(snapshot, SolverParameters(time_limit_seconds=10.0))
+    assert result.status in (SolverStatus.OPTIMAL, SolverStatus.FEASIBLE)
+
+    # Drop one placement
+    incomplete_placements = result.placements[1:]
+    report = validate(snapshot, incomplete_placements)
+    assert not report.is_valid
+    assert any(v.check_id == "VAL-018" for v in report.violations)
+
+

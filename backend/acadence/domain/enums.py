@@ -1,5 +1,5 @@
 """Domain enumerations for Acadence with NEP 2020 Multidisciplinary Framework.
-Aligned with Problem Statement 25091 (Higher Education Dept, Govt of Jammu & Kashmir).
+Aligned with National Education Policy (NEP 2020) Multidisciplinary Structures.
 """
 from enum import Enum
 

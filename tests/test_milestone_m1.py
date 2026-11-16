@@ -163,9 +163,12 @@ def test_validator_catches_workload_exceeded():
     assert result.status in (SolverStatus.OPTIMAL, SolverStatus.FEASIBLE)
 
     corrupted_placements = [p.model_copy() for p in result.placements]
-    # Set faculty limit to 1h daily
-    snap_copy = snapshot.model_copy(deep=True)
-    snap_copy.faculty[0].max_hours_day = 1
+    assigned_fac_id = corrupted_placements[0].assigned_faculty_ids[0]
+    fac_idx = next(i for i, f in enumerate(snapshot.faculty) if f.faculty_id == assigned_fac_id)
+
+    updated_faculty = list(snapshot.faculty)
+    updated_faculty[fac_idx] = updated_faculty[fac_idx].model_copy(update={"max_hours_day": 0})
+    snap_copy = snapshot.model_copy(update={"faculty": updated_faculty})
 
     report = validate(snap_copy, corrupted_placements)
     assert not report.is_valid

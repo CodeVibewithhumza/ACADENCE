@@ -1,5 +1,5 @@
 """NEP 2020 Multidisciplinary Institution Dataset Generator.
-Tailored for Problem Statement 25091 (Higher Education Dept, Govt of Jammu & Kashmir).
+Synthesizes comprehensive multidisciplinary curriculum structures:
 Implements Four-Year Undergraduate Programme (FYUP), ITEP, B.Ed., M.Ed.,
 Multidisciplinary Minor Baskets, SEC labs, AEC, VAC, and School Teaching Practice blocks.
 """
@@ -383,11 +383,11 @@ def generate_nep2020_institution_snapshot(seed: int = 42) -> ConfigSnapshot:
     ]
 
     return ConfigSnapshot(
-        snapshot_id=f"SNAPSHOT_NEP2020_JK_{seed}",
-        institution_id="INST_JK_HE_25091",
-        institution_name="Govt. College of Education & Multidisciplinary Studies, J&K",
-        state_or_ut="Jammu and Kashmir",
-        problem_statement_id="25091",
+        snapshot_id=f"SNAPSHOT_ACADENCE_{seed}",
+        institution_id="INST_NEP2020_001",
+        institution_name="Metropolitan University",
+        state_or_ut="Central",
+        problem_statement_id="NEP-2020-FYUP",
         term_id="TERM_ODD_SEM_2026",
         time_grid=grid,
         student_groups=student_groups,

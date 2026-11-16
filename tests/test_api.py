@@ -19,7 +19,7 @@ def test_api_snapshot():
     response = client.get("/api/snapshot")
     assert response.status_code == 200
     data = response.json()
-    assert data["institution_id"] in ("INST_JK_HE_25091", "INST_DEMO")
+    assert data["institution_id"] in ("INST_NEP2020_001", "INST_DEMO")
     assert len(data["student_groups"]) >= 6
 
 
@@ -83,7 +83,7 @@ def test_api_export_templates_and_ams():
     ams_res = client.get("/api/export/ams-json")
     assert ams_res.status_code == 200
     data = ams_res.json()
-    assert data["problem_statement_id"] == "25091"
+    assert data["framework"] == "NEP-2020"
     assert len(data["schedule"]) > 0
 
 

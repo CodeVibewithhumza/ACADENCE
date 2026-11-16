@@ -1,5 +1,5 @@
 """Immutable configuration snapshot models for Acadence with NEP 2020 Multidisciplinary Framework.
-Follows DATA-039 and Section 7.4 / Section 10.3 / Problem Statement 25091.
+Follows DATA-039 and Section 7.4 / Section 10.3 NEP 2020 Multidisciplinary Guidelines.
 """
 from __future__ import annotations
 import hashlib
@@ -146,9 +146,9 @@ class ConfigSnapshot(BaseModel):
     """Frozen, immutable configuration snapshot (DATA-039)."""
     snapshot_id: str
     institution_id: str
-    institution_name: str = "Govt. College of Education & Multidisciplinary Studies, J&K"
-    state_or_ut: str = "Jammu and Kashmir"
-    problem_statement_id: str = "25091"
+    institution_name: str = "Metropolitan University"
+    state_or_ut: str = "Central"
+    problem_statement_id: str = "ACADENCE-UNIV"
     term_id: str
     time_grid: TimeGrid
     student_groups: List[StudentGroup]

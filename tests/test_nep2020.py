@@ -1,4 +1,4 @@
-"""Tests for NEP 2020 Multidisciplinary Timetable Generation (Problem Statement 25091).
+"""Tests for NEP 2020 Multidisciplinary Timetable Generation.
 Verifies:
 1. Four-Year Undergraduate Programme (FYUP) with Major, Minor Basket, SEC, AEC, VAC.
 2. Integrated Teacher Education Programme (ITEP) & B.Ed. with School Teaching Practice blocks.
@@ -15,8 +15,8 @@ from acadence.test_data.nep2020 import generate_nep2020_institution_snapshot
 def test_nep2020_snapshot_structure():
     """Verify NEP 2020 snapshot includes FYUP, ITEP, B.Ed, M.Ed and categories."""
     snapshot = generate_nep2020_institution_snapshot(seed=42)
-    assert snapshot.institution_id == "INST_JK_HE_25091"
-    assert snapshot.problem_statement_id == "25091"
+    assert snapshot.institution_id == "INST_NEP2020_001"
+    assert snapshot.problem_statement_id == "NEP-2020-FYUP"
     assert len(snapshot.student_groups) == 6
     assert len(snapshot.rooms) == 8
     assert len(snapshot.faculty) == 12

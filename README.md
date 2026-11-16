@@ -1,4 +1,4 @@
-# ACADENCE AI — NEP 2020 Intelligent Multidisciplinary Timetable Engine
+# ACADENCE AI — Intelligent Autonomous Timetable & Academic Scheduling Engine
 
 [![Python 3.13](https://img.shields.io/badge/Python-3.13-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-green.svg)](https://fastapi.tiangolo.com/)
@@ -6,33 +6,35 @@
 [![React 19](https://img.shields.io/badge/React-19%20%2B%20Tailwind%204-cyan.svg)](https://react.dev/)
 [![Tests](https://img.shields.io/badge/Tests-25%20Passing-emerald.svg)](https://pytest.org/)
 
-**Government of Jammu & Kashmir — Higher Education Department**  
-**Problem Statement ID:** `25091`  
-**Theme:** Smart Automation | **Category:** Software  
-**Pilot Institution:** *Govt. College of Education & Multidisciplinary Studies, J&K* (`INST_JK_HE_25091`)
+**Enterprise Academic Timetable & Scheduling Platform**  
+**Theme:** Smart Academic Automation | **Category:** Enterprise Higher Education Software  
+**Reference Institution:** *Metropolitan University*
 
 ---
 
-## 🏛️ 1. Executive Summary & Problem Statement Alignment
+## 🏛️ 1. Executive Summary & Architecture
 
-With the rollout of the **National Education Policy (NEP) 2020**, higher education institutions across Jammu & Kashmir and India have transitioned to **Four-Year Undergraduate Programmes (FYUP)** and integrated teacher education curricula (**ITEP**, **B.Ed.**, **M.Ed.**). These programs introduce flexible, credit-based, multidisciplinary course architectures where students choose across Major (DSC), Multidisciplinary Minor, Skill Enhancement (SEC), Ability Enhancement (AEC), and Value-Added (VAC) categories, alongside field work and school teaching practice internships.
+Modern universities and colleges manage complex, credit-based, multidisciplinary curricula where students select individual course combinations across majors, multidisciplinary minors, skill labs, and electives. 
 
-Manual timetable construction under this framework is combinatorially intractable. **Acadence AI** provides an autonomous, conflict-free, mathematically verified academic timetable generation system specifically tailored to NEP 2020 multidisciplinary structures.
+Constructing conflict-free timetables across diverse academic departments, faculty workload quotas, specialized laboratory facilities, and student cohorts is combinatorially intractable when done manually.
+
+**Acadence AI** provides an autonomous, conflict-free, mathematically verified academic timetable generation and scheduling platform powered by Google OR-Tools CP-SAT and an independent verification oracle.
 
 ```
                            ACADENCE AI ARCHITECTURE
   ┌────────────────────────────────────────────────────────────────────────┐
-  │                        ACADEMIC DATA INPUT STUDIO                      │
+  │                 ACADEMIC DATA INPUT STUDIO & SETTINGS                  │
   │  • Course Catalog   • Faculty Workload   • Room / Lab Infrastructure   │
   │  • Student Pathways • Bulk CSV Ingestion • AMS / ERP Integration       │
+  │  • Role-Based Access Control (RBAC)      • Supabase Ready              │
   └───────────────────────────────────┬────────────────────────────────────┘
                                       │
                                       ▼
   ┌────────────────────────────────────────────────────────────────────────┐
   │                    GOOGLE OR-TOOLS CP-SAT ENGINE                       │
   │  • 12 Hard Constraints (CON-H-001 - CON-H-012)                         │
-  │  • Parallel Minor Basket Synchronization (CON-H-011)                   │
-  │  • UGC Workload Norms (14h Prof / 16h Asst Prof, Max 4h/day)           │
+  │  • Parallel Elective Basket Synchronization (CON-H-011)                │
+  │  • Faculty Workload Norms (14h Prof / 16h Asst Prof, Max 4h/day)       │
   │  • Soft Objectives: Gaps, Spread, Energy (CON-S-003, 004, 005, 008)    │
   └───────────────────────────────────┬────────────────────────────────────┘
                                       │
@@ -43,36 +45,53 @@ Manual timetable construction under this framework is combinatorially intractabl
   │  • Verification Certificate & Audit Trail                              │
   └───────────────────────────────────┬────────────────────────────────────┘
                                       │
-         ┌────────────────────────────┼───────────────────────────┐
-         ▼                            ▼                           ▼
-┌──────────────────┐       ┌──────────────────────┐      ┌─────────────────┐
-│ REACT WEB DASH   │       │  DYNAMIC SIMULATOR   │      │ MULTI-FORMAT    │
-│ • Schedule Grid  │       │  • Emergency Absence │      │ EXPORT          │
-│ • Drag/Drop Move │       │  • Delta-Rescheduler │      │ • Master Excel  │
-│ • Student Pathway│       │    (CON-S-014)       │      │ • AMS JSON      │
-│ • AI Copilot     │       │  • 0-Clash Guarantee │      │ • Official PDF  │
-└──────────────────┘       └──────────────────────┘      └─────────────────┘
+         ┌────────────────────────────────────────────────────────┐
+         ▼                                                        ▼
+┌──────────────────┐                                     ┌─────────────────┐
+│ REACT WEB DASH   │                                     │ MULTI-FORMAT    │
+│ • Schedule Grid  │                                     │ EXPORT          │
+│ • Drag/Drop Move │                                     │ • Master Excel  │
+│ • Student Pathway│                                     │ • AMS JSON      │
+│ • RBAC & Sidebar │                                     │ • Official PDF  │
+│ • Settings Mgmt  │                                     │ • CSV Data      │
+└──────────────────┘                                     └─────────────────┘
 ```
 
 ---
 
-## 🎯 2. Expected Solution Checklist (Problem Statement 25091)
+## 🎯 2. Core Functional Capabilities Checklist
 
-| Requirement from Govt of J&K PS 25091 | Acadence Implementation | Verification / Oracle |
+| Institutional Capability | Acadence Implementation | Verification / Oracle |
 |---|---|---|
 | **Accepts structured inputs from academic, student, & faculty databases** | Academic Data Input Studio with Course, Faculty, Room, & CSV Ingestion portals | Snapshot validation + Pydantic v2 schemas |
-| **Generates semester-wise timetable for multiple programs (FYUP, ITEP, B.Ed, M.Ed)** | Unified multi-program CP-SAT solver partitioning cohorts into conflict-free rooms & slots | Hard constraints `CON-H-001` - `CON-H-012` |
+| **Generates semester-wise timetable for multiple programs & cohorts** | Unified CP-SAT solver partitioning cohorts into conflict-free rooms & slots | Hard constraints `CON-H-001` - `CON-H-012` |
 | **Prevents scheduling conflicts across faculty & infrastructure** | Zero teacher double-booking, zero room collision, zero cohort overlap | `VAL-001`, `VAL-002`, `VAL-003`, `VAL-004` |
-| **Multidisciplinary Minor Basket Synchronization** | Exact concurrent start-slot equality (`CON-H-011`) for parallel electives (Economics, Math, Psychology) | `VAL-011` Basket Concurrency Check |
-| **UGC Faculty Workload & Availability Compliance** | Professor 14h cap, Asst Prof 16h cap, 4h daily cap, unavailable slots | `CON-H-007`, `CON-H-008`, `VAL-007`, `VAL-008` |
-| **Teaching Practice & Lab 2-Hour Blocks** | B.Ed. & ITEP school practice and SEC labs placed in contiguous slots without lunch splits | `CON-H-006`, `CON-H-009`, `VAL-006`, `VAL-009` |
+| **Concurrent Elective Basket Synchronization** | Exact concurrent start-slot equality (`CON-H-011`) for parallel multidisciplinary electives | `VAL-011` Basket Concurrency Check |
+| **Faculty Workload & Availability Compliance** | Professor 14h cap, Asst Prof 16h cap, 4h daily cap, unavailable slots | `CON-H-007`, `CON-H-008`, `VAL-007`, `VAL-008` |
+| **Multi-Hour Lab & Practice Blocks** | Laboratory and practicum sessions placed in contiguous slots without lunch splits | `CON-H-006`, `CON-H-009`, `VAL-006`, `VAL-009` |
 | **Dynamic Editing & Live Delta-Move** | Click-to-move interactive validator computing valid target slots in real-time | `POST /api/timetable/move` + Oracle re-check |
-| **Scenario Simulation ("What-If" Disruptions)** | Reschedules unexpected faculty absence using minimal-perturbation stability objective | `CON-S-014` rescheduler (`POST /api/simulate-scenario`) |
+| **Role-Based Access Control (RBAC)** | Admin, Coordinator, Faculty, and Student roles with fine-grained view and action controls | JWT-ready auth + live role simulation |
+| **System Administration & Settings** | User account management, role permissions matrix, institutional parameters, Supabase config | `/api/settings`, `/api/auth/users`, `/api/audit-logs` |
 | **Exportable Formats (PDF, Excel, AMS JSON)** | Master Multi-Sheet Excel, Standardized ERP/AMS JSON, CSV, and Print Circular | `GET /api/export/xlsx`, `ams-json`, `csv`, `window.print()` |
 
 ---
 
-## 🚀 3. Quickstart Guide
+## 🔐 3. Authentication & Role-Based Access Control (RBAC)
+
+Acadence includes a built-in authentication and permission system designed for easy integration with Supabase or enterprise identity providers:
+
+- **Default Root Administrator:**
+  - **Email:** `hello@123.com`
+  - **Password:** `123`
+- **Supported Roles:**
+  - `ADMIN`: Complete system access, user management, solver execution, settings editing, and snapshot resets.
+  - `COORDINATOR`: Course/faculty creation, schedule optimization, and live session moves.
+  - `FACULTY`: Personal schedule inspection, availability toggle requests, and department calendar views.
+  - `STUDENT`: Read-only personalized elective pathway schedule view.
+
+---
+
+## 🚀 4. Quickstart Guide
 
 ### Prerequisites
 - **Python 3.11+** (Tested on Python 3.13)
@@ -101,27 +120,27 @@ cd web
 npm install
 npm run dev
 ```
-Open `http://localhost:5173` in your browser.
+Open `http://localhost:5173` in your browser and log in with `hello@123.com` / `123`.
 
 ### Step 4: Run the Complete Automated Test Suite
 ```bash
 # From repository root
 python -m pytest tests -v
 ```
-All 25 test suites verify solver optimality, oracle checks, API endpoints, exports, and scenario simulations.
+All automated test suites verify solver optimality, oracle checks, API endpoints, exports, and scenario simulations.
 
 ---
 
-## 💻 4. Where & How to Provide Inputs
+## 💻 5. Where & How to Provide Inputs
 
 Acadence provides **three input avenues** catering to timetable committees, administrators, and ERP engineers:
 
 ### Avenue A: Interactive Academic Data Input Studio (Web UI)
-Click **`[ ⚙️ Academic Data Input Studio ]`** in the top navbar:
-1. **Course Catalog Portal:** Add single-slot theory or 2-slot practical lab/internship courses with NEP category tags, credit hours, student cohorts, and teacher assignments.
-2. **Faculty Workload & Availability Portal:** Configure weekly workload caps (14h vs 16h) and click any slot in the 5-day interactive matrix to mark a teacher unavailable (e.g. administrative duties or leave).
+Click **`[ ⚙️ Academic Data Input Studio ]`** in the top navbar or sidebar:
+1. **Course Catalog Portal:** Add single-slot theory or multi-slot practical lab courses with category tags, credit hours, student cohorts, and teacher assignments.
+2. **Faculty Workload & Availability Portal:** Configure weekly workload caps and click any slot in the 5-day interactive matrix to mark a teacher unavailable (e.g. administrative duties, leave, or research days).
 3. **Room & Specialized Infrastructure Portal:** Register Lecture Halls, Computer/AI Labs, Pedagogy Practice Rooms, and Science Labs with seat capacities.
-4. **Student Pathway Simulator:** Select any student major cohort and their chosen minor elective (e.g., *Computer Science Major + Principles of Microeconomics Minor*) to visualize their personalized conflict-free schedule.
+4. **Student Pathway Simulator:** Select any student major cohort and their chosen minor elective to visualize their personalized conflict-free schedule.
 5. **Bulk CSV Ingestion:** Download templates, paste CSV content, and merge data directly into the active academic snapshot.
 
 ### Avenue B: Bulk CSV Ingestion & Standardized Templates
@@ -134,7 +153,7 @@ Ingest CSV data via `POST /api/admin/upload-csv`:
 ```json
 {
   "data_type": "COURSES",
-  "csv_content": "course_id,course_name,program_type,nep_category,credits,sessions_per_week,duration_slots,group_ids,room_type_id,eligible_faculty_ids\nDSC-AI-301,Deep Learning,FYUP,MAJOR,4,3,1,GRP_FYUP_SEC_A,LECTURE_HALL,FAC_CS_01"
+  "csv_content": "course_id,course_name,program_type,nep_category,credits,sessions_per_week,duration_slots,group_ids,room_type_id,eligible_faculty_ids\nCS-301,Deep Learning,UG,MAJOR,4,3,1,GRP_UG_SEC_A,LECTURE_HALL,FAC_CS_01"
 }
 ```
 
@@ -145,11 +164,11 @@ Academic management systems can feed data programmatically:
 - `POST /api/admin/add-faculty` — Register faculty with designation and workload caps.
 - `POST /api/admin/toggle-faculty-availability` — Restrict/enable specific day-period slots.
 - `POST /api/admin/add-room` — Add classrooms, lecture halls, or labs.
-- `POST /api/admin/reset` — Reset to default pilot institution baseline.
+- `POST /api/admin/reset` — Reset to default baseline snapshot.
 
 ---
 
-## 🧠 5. Mathematical Constraint Specification
+## 🧠 6. Mathematical Constraint Specification
 
 Acadence implements a discrete constraint model in Google OR-Tools CP-SAT:
 
@@ -157,64 +176,42 @@ Acadence implements a discrete constraint model in Google OR-Tools CP-SAT:
 1. `CON-H-001` **Session Completeness:** Exactly $N$ weekly sessions scheduled for every registered course requirement.
 2. `CON-H-002` **Faculty Uniqueness:** A teacher cannot be scheduled in two places simultaneously.
 3. `CON-H-003` **Room Uniqueness:** A physical classroom or lab cannot hold two sessions at the same time.
-4. `CON-H-004` **Student Group Uniqueness:** A student cohort cannot be scheduled in two concurrent courses, with exact leaf-path handling.
-5. `CON-H-005` **Room Suitability & Capacity:** Practical labs are placed in specialized rooms (e.g., Computer Lab, Pedagogy Room) with capacity $\ge$ class size.
-6. `CON-H-006` **Contiguous Block Integrity:** 2-hour labs and practice blocks are scheduled in consecutive periods without mid-session breaks.
-7. `CON-H-007` **Faculty Weekly Workload Cap:** Professor $\le 14$ hours/week; Assistant Professor $\le 16$ hours/week (UGC Regulations).
-8. `CON-H-008` **Faculty Daily Cap & Availability:** Faculty cannot exceed 4 teaching hours per day and cannot be assigned to unavailable/leave slots.
-9. `CON-H-009` **Lunch Break Protection:** Multi-hour sessions cannot bridge over the designated daily lunch interval (11:00 AM – 11:30 AM).
+4. `CON-H-004` **Student Group Uniqueness:** A student cohort cannot be scheduled in two concurrent courses.
+5. `CON-H-005` **Room Suitability & Capacity:** Practical labs are placed in specialized rooms with capacity $\ge$ class size.
+6. `CON-H-006` **Contiguous Block Integrity:** Multi-hour labs and practice blocks are scheduled in consecutive periods without mid-session breaks.
+7. `CON-H-007` **Faculty Weekly Workload Cap:** Professor $\le 14$ hours/week; Assistant Professor $\le 16$ hours/week.
+8. `CON-H-008` **Faculty Daily Cap & Availability:** Faculty cannot exceed daily teaching hour limits and cannot be assigned to unavailable/leave slots.
+9. `CON-H-009` **Lunch Break Protection:** Multi-hour sessions cannot bridge over the designated daily lunch interval.
 10. `CON-H-010` **Daily Course Limit:** A student group cannot have more than 1 session of the same course on the same day.
-11. `CON-H-011` **Parallel Minor Basket Synchronization:** Multidisciplinary minor electives running across shared student cohorts are constrained to start at the exact identical period in distinct rooms:
-    $$\text{start}(\text{Minor}_{\text{Eco}}) = \text{start}(\text{Minor}_{\text{Math}}) = \text{start}(\text{Minor}_{\text{Psy}})$$
-12. `CON-H-012` **School Teaching Practice Block:** Dedicated teacher education internship blocks reserved without collisions.
+11. `CON-H-011` **Parallel Elective Basket Synchronization:** Cross-departmental electives running across shared student cohorts are constrained to start at the exact identical period in distinct rooms.
+12. `CON-H-012` **Dedicated Field / Practice Blocks:** Dedicated practicum or internship blocks reserved without collisions.
 
 ### Independent Verification Oracle
 The Independent Validator (`acadence/validator/validator.py`) contains **zero solver code** and operates purely as an audit oracle (`VAL-001` through `VAL-011`). Every timetable generation, move, or rescheduling operation is independently verified before being accepted.
 
 ---
 
-## 🔄 6. Dynamic Scenarios & AI Copilot
-
-### What-If Disruption Simulator
-Higher education institutions frequently experience unexpected faculty absences, medical emergencies, or room repairs.
-- **Scenario Simulation Modal:** Select any teacher and click "Execute Simulation".
-- **Minimal Perturbation (`CON-S-014`):** The CP-SAT rescheduler locks all unaffected classes and moves only the impacted sessions into alternate clash-free slots.
-
-### Acadence AI Copilot
-Located in the right drawer, the AI Copilot accepts natural language queries:
-- *"Can we move CS201 to another slot?"* -> Evaluates candidate slots and generates a one-click apply proposal.
-- *"Why is Dr. Alan Turing restricted?"* -> Explains UGC weekly workload limits and booked slots.
-- *"What happens if Dr. Turing is sick on Monday?"* -> Simulates immediate emergency coverage.
-
----
-
 ## 📊 7. Multi-Format Exports
 
-1. **J&K Master Multi-Sheet Excel Workbook (`.xlsx`):**
+1. **Master Multi-Sheet Excel Workbook (`.xlsx`):**
    - Individual formatted grid sheets for every student section, faculty member, and classroom.
-   - Formula injection sanitization (`HOLE-019`) and automated sheet name compliance.
+   - Formula injection sanitization and automated sheet name compliance.
 2. **Standardized ERP / AMS JSON (`/api/export/ams-json`):**
-   - Standardized schema for seamless sync with existing J&K Academic Management Systems.
+   - Standardized schema for seamless sync with existing University Academic Management Systems.
 3. **Official Printable Timetable Circular (PDF / Print):**
-   - Clean, professional, high-contrast institutional circular formatted for government circulation with `@media print` styling.
+   - Clean, professional, high-contrast institutional circular formatted for university circulation with `@media print` styling.
 
 ---
 
-## 🏛️ Pilot Institution Profile
+## 🏛️ Default Institutional Configuration
 
-- **Institution:** Govt. College of Education & Multidisciplinary Studies, J&K
-- **Institution Code:** `INST_JK_HE_25091`
-- **Location:** Srinagar / Jammu, UT of Jammu and Kashmir
-- **Programs Covered:**
-  - FYUP Semester 3 (Sections A & B)
-  - ITEP B.Sc.-B.Ed. Semester 5
-  - B.Ed. Secondary Teacher Education Semester 3
-  - M.Ed. Postgraduate Teacher Education Semester 3
-- **Weekly Schedule Grid:** Monday to Friday (5 Days), 8 Periods/Day (08:30 – 15:40) with dedicated lunch break.
+- **Institution:** Metropolitan University
+- **Institution Code:** `INST_DEMO_001`
+- **Curriculum Model:** Semester & Credit-Based System
+- **Weekly Schedule Grid:** Monday to Friday (5 Days), 7 Periods/Day with dedicated lunch break.
 
 ---
 
 ## 📄 License & Intellectual Property
 
-Developed for the **Higher Education Department, Government of Jammu & Kashmir** under the **Smart Automation (Software)** theme. All rights reserved.
-
+Acadence AI — Autonomous Academic Timetable & Scheduling Optimization System. All rights reserved.

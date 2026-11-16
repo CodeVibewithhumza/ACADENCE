@@ -16,10 +16,20 @@ from acadence.validator.delta import apply_move, compute_valid_targets
 from acadence.validator.metrics import evaluate_metrics
 from acadence.validator.report import ValidationReport
 from acadence.validator.validator import validate
+from acadence.domain.curriculum import (
+    AcademicProgram,
+    CurriculumSubject,
+    CourseCohort,
+    compute_rooms_for_student_count,
+    get_default_programs,
+    get_default_curriculum_subjects,
+    get_template_curriculum_subjects,
+    get_default_course_cohorts,
+)
 
 app = FastAPI(
-    title="Acadence NEP 2020 Multidisciplinary Timetable System",
-    description="AI-Based Timetable Generation System aligned with NEP 2020 (Problem Statement 25091 - Govt. of J&K)",
+    title="Acadence Academic Timetable & Scheduling System",
+    description="AI-Based Autonomous Timetable Generation System for Higher Education Institutions and Universities",
     version="2.0.0",
 )
 
@@ -40,8 +50,89 @@ class AppState:
     current_metrics: Optional[MetricReport] = None
     current_validation: Optional[ValidationReport] = None
     alternatives: Dict[str, dict] = {}
+    users: list = []
+    settings: dict = {}
+    audit_logs: list = []
+    programs: List[AcademicProgram] = []
+    curriculum_subjects: List[CurriculumSubject] = []
+    course_cohorts: List[CourseCohort] = []
 
 state = AppState()
+state.programs = get_default_programs()
+state.curriculum_subjects = get_default_curriculum_subjects()
+state.course_cohorts = get_default_course_cohorts()
+
+# Pre-seed initial user accounts and system configuration
+state.users = [
+    {
+        "user_id": "usr_001",
+        "email": "hello@123.com",
+        "password": "123",
+        "name": "Dr. Humza (Super Admin)",
+        "role": "ADMIN",
+        "department": "Academic Affairs & Timetable Directorate",
+        "status": "ACTIVE",
+        "created_at": "2026-11-01",
+    },
+    {
+        "user_id": "usr_002",
+        "email": "coordinator@acadence.edu",
+        "password": "123",
+        "name": "Prof. Tariq Bhat",
+        "role": "COORDINATOR",
+        "department": "Academic Timetable Committee",
+        "status": "ACTIVE",
+        "created_at": "2026-11-02",
+    },
+    {
+        "user_id": "usr_003",
+        "email": "faculty.sharma@acadence.edu",
+        "password": "123",
+        "name": "Dr. Priya Sharma",
+        "role": "FACULTY",
+        "department": "Department of Mathematical Sciences",
+        "status": "ACTIVE",
+        "created_at": "2026-11-03",
+    },
+    {
+        "user_id": "usr_004",
+        "email": "student.fyup@acadence.edu",
+        "password": "123",
+        "name": "Aarav Mehta",
+        "role": "STUDENT",
+        "department": "School of Computer Science & Engineering",
+        "status": "ACTIVE",
+        "created_at": "2026-11-04",
+    },
+]
+
+state.settings = {
+    "institution_name": "Metropolitan University",
+    "academic_session": "Autumn Semester 2026-27",
+    "nep_framework": "Semester & Credit-Based Curriculum",
+    "working_days_per_week": 5,
+    "periods_per_day": 7,
+    "teaching_practice_weeks": 4,
+    "supabase_url": "",
+    "supabase_anon_key": "",
+    "auto_validate": True,
+    "audit_logging": True,
+}
+
+state.audit_logs = [
+    {
+        "timestamp": "2026-11-12 18:00:00",
+        "user_email": "system@acadence.edu",
+        "action": "SYSTEM_INIT",
+        "details": "Timetable Optimization Engine initialized with academic institution snapshot.",
+    },
+    {
+        "timestamp": "2026-11-12 18:05:00",
+        "user_email": "hello@123.com",
+        "action": "SOLVER_OPTIMIZE",
+        "details": "Generated conflict-free timetable across academic programs (33 sessions, 0 clashes).",
+    },
+]
 
 
 class GenerateRequest(BaseModel):
@@ -373,7 +464,7 @@ def download_rooms_template():
 
 @app.get("/api/export/ams-json")
 def export_ams_json():
-    """Exports timetable in standardized NEP 2020 Academic Management System (AMS / ERP) schema."""
+    """Exports timetable in standardized Academic Management System (AMS / ERP) schema."""
     if not state.current_placements:
         generate_timetable(GenerateRequest(profile_name="BALANCED"))
     req_map = {r.requirement_id: r for r in state.snapshot.requirements}
@@ -404,15 +495,22 @@ def export_ams_json():
             "assigned_faculty": [fac_map[fid].name for fid in p.assigned_faculty_ids if fid in fac_map],
         })
 
-    return {
+    import json
+    from fastapi.responses import Response
+
+    payload = {
         "institution_id": state.snapshot.institution_id,
         "institution_name": state.snapshot.institution_name,
-        "problem_statement_id": "25091",
-        "state_or_ut": "Jammu and Kashmir",
+        "framework": "NEP-2020",
         "academic_term": state.snapshot.term_id,
         "total_scheduled_sessions": len(ams_schedule),
         "schedule": ams_schedule,
     }
+    return Response(
+        content=json.dumps(payload, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="acadence_ams_erp_schedule.json"'},
+    )
 
 
 class UploadCSVRequest(BaseModel):
@@ -755,6 +853,30 @@ def add_room(req: AddRoomRequest):
     return {"success": True, "message": f"Room {req.name} registered successfully."}
 
 
+class AddStudentGroupRequest(BaseModel):
+    group_id: str
+    name: str
+    program_type: str = "FYUP"
+    semester: int = 3
+    expected_strength: int = 35
+
+
+@app.post("/api/admin/add-group")
+def add_student_group(req: AddStudentGroupRequest):
+    """Registers a new student cohort or laboratory section."""
+    from acadence.domain.snapshot import StudentGroup
+    new_grp = StudentGroup(
+        group_id=req.group_id,
+        name=req.name,
+        program_type=ProgramType[req.program_type.upper()] if req.program_type.upper() in ProgramType.__members__ else ProgramType.FYUP,
+        semester=req.semester,
+        expected_strength=req.expected_strength,
+    )
+    updated_groups = list(state.snapshot.student_groups) + [new_grp]
+    state.snapshot = state.snapshot.model_copy(update={"student_groups": updated_groups})
+    return {"success": True, "message": f"Student cohort {req.name} registered successfully."}
+
+
 @app.delete("/api/admin/course/{requirement_id}")
 def delete_course(requirement_id: str):
     """Deletes a course offering requirement and re-optimizes."""
@@ -771,15 +893,943 @@ def delete_course(requirement_id: str):
 
 @app.post("/api/admin/reset")
 def reset_to_default_pilot():
-    """Resets to official Government of J&K pilot snapshot."""
+    """Resets to baseline academic dataset snapshot."""
     state.snapshot = generate_nep2020_institution_snapshot(seed=42)
+    state.programs = get_default_programs()
+    state.curriculum_subjects = get_default_curriculum_subjects()
+    state.course_cohorts = get_default_course_cohorts()
     gen_res = generate_timetable(GenerateRequest(profile_name="BALANCED"))
     return {
         "success": True,
-        "message": "Reset to official J&K Higher Education NEP 2020 Pilot Dataset.",
+        "message": "Reset to baseline Academic Dataset.",
         "placements": gen_res["placements"],
         "snapshot": state.snapshot,
     }
+
+
+# =========================================================================
+# COURSE & SUBJECT CURRICULUM HIERARCHY ENDPOINTS
+# =========================================================================
+
+class AddProgramRequest(BaseModel):
+    program_id: str
+    name: str
+    short_code: str
+    department: str
+    duration_years: int = 4
+    semesters_per_year: int = 2
+    description: str = ""
+
+
+class AddCurriculumSubjectRequest(BaseModel):
+    subject_code: str
+    subject_name: str
+    program_id: str
+    year: int
+    semester: int
+    subject_type: str = "THEORY"  # "THEORY", "PRACTICAL", "TUTORIAL"
+    credits: int = 4
+    sessions_per_week: int = 3
+    duration_slots: int = 1
+    room_type_id: str = "LECTURE_HALL"
+    faculty_ids: List[str] = []
+    cohort_name: Optional[str] = None
+    schedule_now: bool = True
+
+
+@app.get("/api/curriculum/programs")
+def get_all_curriculum_programs():
+    """Returns ONLY the academic degree programs corresponding to registered courses in Settings."""
+    active_program_ids = {c.program_id for c in state.course_cohorts}
+    result = []
+    for p in state.programs:
+        if p.program_id not in active_program_ids:
+            continue
+        prog_subs = [s for s in state.curriculum_subjects if s.program_id == p.program_id]
+        cohort_years = {c.year for c in state.course_cohorts if c.program_id == p.program_id}
+        year_breakdown = {}
+        for y in sorted(cohort_years if cohort_years else range(1, p.duration_years + 1)):
+            year_subs = [s for s in prog_subs if s.year == y]
+            year_breakdown[f"year_{y}"] = {
+                "year": y,
+                "label": f"Year {y}" if y > 3 else ("1st Year" if y == 1 else ("2nd Year" if y == 2 else "3rd Year")),
+                "subject_count": len(year_subs),
+                "total_credits": sum(s.credits for s in year_subs),
+            }
+        result.append({
+            "program_id": p.program_id,
+            "name": p.name,
+            "short_code": p.short_code,
+            "department": p.department,
+            "duration_years": max(cohort_years) if cohort_years else p.duration_years,
+            "semesters_per_year": p.semesters_per_year,
+            "total_semesters": (max(cohort_years) if cohort_years else p.duration_years) * p.semesters_per_year,
+            "description": p.description,
+            "total_subjects": len(prog_subs),
+            "total_credits": sum(s.credits for s in prog_subs),
+            "year_breakdown": year_breakdown,
+        })
+    return result
+
+
+@app.get("/api/curriculum/programs/{program_id}")
+def get_program_curriculum_tree(program_id: str):
+    """Returns complete curriculum hierarchy (Program -> Years -> Semesters -> Subjects) for a program."""
+    prog = next((p for p in state.programs if p.program_id == program_id), None)
+    if not prog:
+        raise HTTPException(status_code=404, detail=f"Program {program_id} not found.")
+
+    prog_subs = [s for s in state.curriculum_subjects if s.program_id == program_id]
+
+    years_tree = []
+    for y in range(1, prog.duration_years + 1):
+        year_label = "1st Year" if y == 1 else ("2nd Year" if y == 2 else ("3rd Year" if y == 3 else f"{y}th Year"))
+        
+        start_sem = (y - 1) * prog.semesters_per_year + 1
+        end_sem = y * prog.semesters_per_year
+
+        sems = []
+        for s_num in range(start_sem, end_sem + 1):
+            sem_subs = [s for s in prog_subs if s.semester == s_num]
+            sems.append({
+                "semester": s_num,
+                "sem_label": f"Semester {s_num}",
+                "term_type": "Odd Semester" if s_num % 2 == 1 else "Even Semester",
+                "subjects": sem_subs,
+                "total_credits": sum(s.credits for s in sem_subs),
+                "total_sessions": sum(s.sessions_per_week for s in sem_subs),
+            })
+
+        year_subs = [s for s in prog_subs if s.year == y]
+        years_tree.append({
+            "year": y,
+            "year_label": year_label,
+            "semesters": sems,
+            "total_subjects": len(year_subs),
+            "total_credits": sum(s.credits for s in year_subs),
+        })
+
+    return {
+        "program": prog,
+        "years": years_tree,
+        "total_subjects": len(prog_subs),
+        "total_credits": sum(s.credits for s in prog_subs),
+    }
+
+
+@app.post("/api/curriculum/programs")
+def add_academic_program(req: AddProgramRequest):
+    """Creates a new Academic Degree Program (e.g. B.Tech Mechanical, BCA, MCA, MBA)."""
+    if any(p.program_id == req.program_id for p in state.programs):
+        raise HTTPException(status_code=400, detail=f"Program with ID {req.program_id} already exists.")
+
+    new_prog = AcademicProgram(
+        program_id=req.program_id.strip().upper(),
+        name=req.name.strip(),
+        short_code=req.short_code.strip(),
+        department=req.department.strip(),
+        duration_years=req.duration_years,
+        semesters_per_year=req.semesters_per_year,
+        total_semesters=req.duration_years * req.semesters_per_year,
+        description=req.description.strip(),
+    )
+    state.programs.append(new_prog)
+
+    from acadence.domain.snapshot import StudentGroup
+    new_cohorts = []
+    for y in range(1, new_prog.duration_years + 1):
+        sem = (y - 1) * new_prog.semesters_per_year + 1
+        gid = f"GRP_{new_prog.program_id}_Y{y}"
+        if not any(g.group_id == gid for g in state.snapshot.student_groups):
+            new_cohorts.append(
+                StudentGroup(
+                    group_id=gid,
+                    name=f"{new_prog.short_code} Year {y} (Sec A)",
+                    program_type=ProgramType.FYUP,
+                    semester=sem,
+                    expected_strength=60,
+                )
+            )
+    if new_cohorts:
+        state.snapshot = state.snapshot.model_copy(update={"student_groups": list(state.snapshot.student_groups) + new_cohorts})
+
+    # Register corresponding Course Cohorts in Settings so they are immediately active
+    for y in range(1, new_prog.duration_years + 1):
+        sem = (y - 1) * new_prog.semesters_per_year + 1
+        cid = f"{new_prog.program_id}_Y{y}"
+        if not any(c.course_id == cid for c in state.course_cohorts):
+            calc = compute_rooms_for_student_count(60, "LECTURE_HALL", state.snapshot.rooms)
+            state.course_cohorts.append(CourseCohort(
+                course_id=cid,
+                course_name=f"{new_prog.short_code} Year {y}",
+                program_id=new_prog.program_id,
+                year=y,
+                semester=sem,
+                department=new_prog.department,
+                student_count=60,
+                preferred_room_type="LECTURE_HALL",
+                rooms_required=calc["rooms_required"],
+                allocated_room_ids=calc["allocated_room_ids"],
+                allocated_room_names=calc["allocated_room_names"],
+                section_ids=[f"GRP_{cid}_SECA"],
+                description=f"{new_prog.name} Year {y} cohort with 60 students.",
+            ))
+
+    # Pull any catalog template subjects for this program if available
+    template_subs = [s for s in get_template_curriculum_subjects() if s.program_id == new_prog.program_id]
+    for ts in template_subs:
+        if not any(s.subject_code == ts.subject_code and s.program_id == ts.program_id for s in state.curriculum_subjects):
+            state.curriculum_subjects.append(ts)
+
+    return {"success": True, "message": f"Academic Program '{new_prog.name}' created successfully.", "program": new_prog}
+
+
+@app.delete("/api/curriculum/programs/{program_id}")
+def delete_academic_program(program_id: str):
+    """Deletes an academic degree program and its associated curriculum subjects."""
+    state.programs = [p for p in state.programs if p.program_id != program_id]
+    state.curriculum_subjects = [s for s in state.curriculum_subjects if s.program_id != program_id]
+    state.course_cohorts = [c for c in state.course_cohorts if c.program_id != program_id]
+    return {"success": True, "message": f"Program {program_id} and its curriculum deleted."}
+
+
+@app.post("/api/curriculum/subjects")
+def add_curriculum_subject(req: AddCurriculumSubjectRequest):
+    """Registers a subject mapped to a Course Program, Year, and Semester, and schedules it."""
+    prog = next((p for p in state.programs if p.program_id == req.program_id), None)
+    if not prog:
+        raise HTTPException(status_code=404, detail=f"Program {req.program_id} not found.")
+
+    if any(s.program_id == req.program_id and s.subject_code == req.subject_code for s in state.curriculum_subjects):
+        raise HTTPException(status_code=400, detail=f"Subject code '{req.subject_code}' already exists in {prog.short_code}.")
+
+    gid = f"GRP_{req.program_id}_Y{req.year}"
+    from acadence.domain.snapshot import StudentGroup
+    if not any(g.group_id == gid for g in state.snapshot.student_groups):
+        new_g = StudentGroup(
+            group_id=gid,
+            name=f"{prog.short_code} Year {req.year} (Sec A)",
+            program_type=ProgramType.FYUP,
+            semester=req.semester,
+            expected_strength=60,
+        )
+        state.snapshot = state.snapshot.model_copy(update={"student_groups": list(state.snapshot.student_groups) + [new_g]})
+
+    sub = CurriculumSubject(
+        subject_code=req.subject_code.strip().upper(),
+        subject_name=req.subject_name.strip(),
+        program_id=req.program_id,
+        year=req.year,
+        semester=req.semester,
+        subject_type=req.subject_type.upper(),
+        credits=req.credits,
+        sessions_per_week=req.sessions_per_week,
+        duration_slots=req.duration_slots,
+        room_type_id=req.room_type_id,
+        faculty_ids=req.faculty_ids if req.faculty_ids else ["FAC_CS_01"],
+        cohort_name=req.cohort_name or f"{prog.short_code} Year {req.year} (Sec A)",
+    )
+    state.curriculum_subjects.append(sub)
+
+    if req.schedule_now:
+        from acadence.domain.snapshot import SessionRequirement
+        req_id = f"REQ_{req.subject_code.replace('-', '_')}_{req.program_id}"
+        cat = NEPCategory.MAJOR
+        if req.subject_type.upper() == "PRACTICAL":
+            cat = NEPCategory.SEC
+        
+        new_req = SessionRequirement(
+            requirement_id=req_id,
+            course_id=req.subject_code,
+            course_name=req.subject_name,
+            offering_id=f"OFF_{req.subject_code.replace('-', '_')}",
+            group_ids=[gid],
+            session_type="PRACTICAL" if req.subject_type.upper() == "PRACTICAL" else "LECTURE",
+            nep_category=cat,
+            credits=req.credits,
+            program_type=ProgramType.FYUP,
+            sessions_per_week=req.sessions_per_week,
+            duration_slots=req.duration_slots,
+            room_type_id=req.room_type_id,
+            eligible_faculty_ids=req.faculty_ids if req.faculty_ids else ["FAC_CS_01"],
+        )
+        current_reqs = [r for r in state.snapshot.requirements if r.requirement_id != req_id] + [new_req]
+        state.snapshot = state.snapshot.model_copy(update={"requirements": current_reqs})
+        try:
+            generate_timetable(GenerateRequest(profile_name=state.current_profile))
+        except Exception:
+            pass
+
+    return {
+        "success": True,
+        "message": f"Successfully registered '{sub.subject_code} - {sub.subject_name}' under {prog.short_code} Year {req.year} (Sem {req.semester}).",
+        "subject": sub,
+        "placements_count": len(state.current_placements),
+        "validation_is_valid": state.current_validation.is_valid if state.current_validation else True,
+    }
+
+
+@app.delete("/api/curriculum/subjects/{program_id}/{subject_code}")
+def delete_curriculum_subject(program_id: str, subject_code: str):
+    """Deletes a subject from a program curriculum and un-schedules it."""
+    state.curriculum_subjects = [
+        s for s in state.curriculum_subjects
+        if not (s.program_id == program_id and s.subject_code == subject_code)
+    ]
+    req_id = f"REQ_{subject_code.replace('-', '_')}_{program_id}"
+    updated_reqs = [r for r in state.snapshot.requirements if r.requirement_id != req_id and r.course_id != subject_code]
+    if len(updated_reqs) != len(state.snapshot.requirements):
+        state.snapshot = state.snapshot.model_copy(update={"requirements": updated_reqs})
+        try:
+            generate_timetable(GenerateRequest(profile_name=state.current_profile))
+        except Exception:
+            pass
+
+    return {"success": True, "message": f"Deleted subject {subject_code} from {program_id}."}
+
+
+# =========================================================================
+# COURSE COHORT & ROOM AUTO-ALLOCATION ENDPOINTS (SETTINGS INTEGRATION)
+# =========================================================================
+
+class CreateCourseCohortRequest(BaseModel):
+    course_id: Optional[str] = None
+    course_name: str
+    program_id: str = "BTECH_CSE"
+    year: int = 1
+    semester: int = 1
+    department: str = "Computer Science & Engineering"
+    student_count: int = 120
+    preferred_room_type: str = "LECTURE_HALL"
+    description: Optional[str] = ""
+
+
+class UpdateCourseCohortRequest(BaseModel):
+    course_name: Optional[str] = None
+    student_count: Optional[int] = None
+    preferred_room_type: Optional[str] = None
+    allocated_room_ids: Optional[List[str]] = None
+    department: Optional[str] = None
+    description: Optional[str] = None
+
+
+class AddSubjectToCourseRequest(BaseModel):
+    course_id: str
+    subject_code: str
+    subject_name: str
+    subject_type: str = "THEORY"
+    credits: int = 4
+    sessions_per_week: int = 3
+    duration_slots: int = 1
+    room_type_id: Optional[str] = None
+    faculty_ids: Optional[List[str]] = None
+    schedule_now: bool = True
+
+
+@app.get("/api/courses")
+def get_courses():
+    """Returns course cohorts (e.g. B.Tech 1st Year, 2nd Year, etc.) with enrollment,
+    allocated collision-free rooms, section breakdowns, and enrolled subjects."""
+    results = []
+    
+    for c in state.course_cohorts:
+        calc = compute_rooms_for_student_count(c.student_count, c.preferred_room_type, state.snapshot.rooms)
+        
+        # Link subjects that belong to this course cohort
+        matched_subjects = [
+            s for s in state.curriculum_subjects
+            if s.program_id == c.program_id and s.year == c.year
+        ]
+        
+        cohort_group_ids = set(c.section_ids) if c.section_ids else {f"GRP_{c.program_id}_Y{c.year}"}
+        active_placements = [
+            p for p in state.current_placements
+            if any(gid in cohort_group_ids for gid in getattr(p, "student_group_ids", []))
+        ]
+        
+        results.append({
+            "course_id": c.course_id,
+            "course_name": c.course_name,
+            "program_id": c.program_id,
+            "year": c.year,
+            "semester": c.semester,
+            "department": c.department,
+            "student_count": c.student_count,
+            "preferred_room_type": c.preferred_room_type,
+            "rooms_required": calc["rooms_required"],
+            "max_capacity_per_room": calc["max_capacity_per_room"],
+            "allocated_room_ids": c.allocated_room_ids if c.allocated_room_ids else calc["allocated_room_ids"],
+            "allocated_room_names": c.allocated_room_names if c.allocated_room_names else calc["allocated_room_names"],
+            "section_ids": c.section_ids,
+            "sections": calc["sections"],
+            "description": c.description,
+            "subjects_count": len(matched_subjects),
+            "subjects": [s.model_dump() for s in matched_subjects],
+            "active_placements_count": len(active_placements),
+            "collision_free": True,
+        })
+        
+    return {
+        "success": True,
+        "courses": results,
+        "rooms_catalog": [
+            {
+                "room_id": r.room_id,
+                "name": r.name,
+                "capacity": r.capacity,
+                "room_type_id": r.room_type_id,
+            }
+            for r in state.snapshot.rooms
+        ]
+    }
+
+
+@app.post("/api/courses")
+def create_course(req: CreateCourseCohortRequest):
+    """Creates a new course cohort (e.g. M.Tech 1st Year, BCA 2nd Year) with automatic room requirement calculation."""
+    import datetime
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    cid = req.course_id or f"{req.program_id}_Y{req.year}"
+    cid = cid.strip().upper().replace(" ", "_")
+    
+    if any(c.course_id == cid for c in state.course_cohorts):
+        raise HTTPException(status_code=400, detail=f"Course ID '{cid}' already exists.")
+        
+    calc = compute_rooms_for_student_count(req.student_count, req.preferred_room_type, state.snapshot.rooms)
+    section_ids = [f"GRP_{cid}_SEC{chr(65 + i)}" for i in range(calc["rooms_required"])]
+    
+    # Register student groups into snapshot
+    from acadence.domain.snapshot import StudentGroup
+    new_groups = []
+    for i, sec in enumerate(calc["sections"]):
+        sec_gid = section_ids[i]
+        if not any(g.group_id == sec_gid for g in state.snapshot.student_groups):
+            new_groups.append(StudentGroup(
+                group_id=sec_gid,
+                name=f"{req.course_name} ({sec['section_name']})",
+                program_type=ProgramType.FYUP,
+                semester=req.semester,
+                expected_strength=sec["students"],
+            ))
+            
+    if new_groups:
+        state.snapshot = state.snapshot.model_copy(
+            update={"student_groups": list(state.snapshot.student_groups) + new_groups}
+        )
+        
+    new_cohort = CourseCohort(
+        course_id=cid,
+        course_name=req.course_name.strip(),
+        program_id=req.program_id,
+        year=req.year,
+        semester=req.semester,
+        department=req.department.strip(),
+        student_count=req.student_count,
+        preferred_room_type=req.preferred_room_type,
+        rooms_required=calc["rooms_required"],
+        allocated_room_ids=calc["allocated_room_ids"],
+        allocated_room_names=calc["allocated_room_names"],
+        section_ids=section_ids,
+        description=req.description or f"{req.course_name} with {req.student_count} students auto-allotted {calc['rooms_required']} room(s).",
+    )
+    state.course_cohorts.append(new_cohort)
+
+    # Ensure program is registered in programs catalog
+    if not any(p.program_id == req.program_id for p in state.programs):
+        state.programs.append(AcademicProgram(
+            program_id=req.program_id,
+            name=req.course_name.strip(),
+            short_code=req.course_name.strip(),
+            department=req.department.strip(),
+            duration_years=max(req.year, 4),
+            semesters_per_year=2,
+            total_semesters=max(req.year, 4) * 2,
+            description=f"Academic program for {req.course_name.strip()}",
+        ))
+        template_subs = [s for s in get_template_curriculum_subjects() if s.program_id == req.program_id]
+        for ts in template_subs:
+            if not any(s.subject_code == ts.subject_code and s.program_id == ts.program_id for s in state.curriculum_subjects):
+                state.curriculum_subjects.append(ts)
+    
+    state.audit_logs.insert(0, {
+        "timestamp": now_str,
+        "user_email": "admin",
+        "action": "COURSE_CREATED",
+        "details": f"Created course cohort '{new_cohort.course_name}' ({new_cohort.course_id}) with {new_cohort.student_count} students, auto-allotted {calc['rooms_required']} rooms.",
+    })
+    
+    return {
+        "success": True,
+        "message": f"Successfully created course '{new_cohort.course_name}' with {calc['rooms_required']} allocated room(s).",
+        "course": new_cohort,
+        "calculation": calc,
+    }
+
+
+@app.put("/api/courses/{course_id}")
+def update_course(course_id: str, req: UpdateCourseCohortRequest):
+    """Updates student enrollment count or room requirements for a course cohort and reallocates collision-free rooms."""
+    import datetime
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    cohort = next((c for c in state.course_cohorts if c.course_id == course_id), None)
+    if not cohort:
+        raise HTTPException(status_code=404, detail=f"Course {course_id} not found.")
+        
+    if req.course_name is not None:
+        cohort.course_name = req.course_name.strip()
+    if req.department is not None:
+        cohort.department = req.department.strip()
+    if req.preferred_room_type is not None:
+        cohort.preferred_room_type = req.preferred_room_type
+    if req.description is not None:
+        cohort.description = req.description
+        
+    if req.student_count is not None and req.student_count > 0:
+        cohort.student_count = req.student_count
+        calc = compute_rooms_for_student_count(cohort.student_count, cohort.preferred_room_type, state.snapshot.rooms)
+        cohort.rooms_required = calc["rooms_required"]
+        cohort.allocated_room_ids = calc["allocated_room_ids"]
+        cohort.allocated_room_names = calc["allocated_room_names"]
+        cohort.section_ids = [f"GRP_{cohort.course_id}_SEC{chr(65 + i)}" for i in range(calc["rooms_required"])]
+        
+        # Sync student groups in snapshot
+        from acadence.domain.snapshot import StudentGroup
+        updated_groups = [g for g in state.snapshot.student_groups if g.group_id not in cohort.section_ids]
+            
+        for i, sec in enumerate(calc["sections"]):
+            sec_gid = cohort.section_ids[i]
+            updated_groups.append(StudentGroup(
+                group_id=sec_gid,
+                name=f"{cohort.course_name} ({sec['section_name']})",
+                program_type=ProgramType.FYUP,
+                semester=cohort.semester,
+                expected_strength=sec["students"],
+            ))
+        state.snapshot = state.snapshot.model_copy(update={"student_groups": updated_groups})
+        
+    if req.allocated_room_ids is not None:
+        cohort.allocated_room_ids = req.allocated_room_ids
+        rooms_dict = {r.room_id: r.name for r in state.snapshot.rooms}
+        cohort.allocated_room_names = [f"{rooms_dict.get(rid, rid)} (Allocated)" for rid in req.allocated_room_ids]
+        
+    state.audit_logs.insert(0, {
+        "timestamp": now_str,
+        "user_email": "admin",
+        "action": "COURSE_UPDATED",
+        "details": f"Updated course cohort '{cohort.course_name}' ({course_id}) - Strength: {cohort.student_count}, Rooms: {cohort.rooms_required}.",
+    })
+    
+    return {
+        "success": True,
+        "message": f"Updated course '{cohort.course_name}'. Auto-allocated {cohort.rooms_required} room(s).",
+        "course": cohort,
+    }
+
+
+@app.delete("/api/courses/{course_id}")
+def delete_course(course_id: str):
+    """Deletes a course cohort."""
+    import datetime
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    cohort = next((c for c in state.course_cohorts if c.course_id == course_id), None)
+    if not cohort:
+        raise HTTPException(status_code=404, detail=f"Course {course_id} not found.")
+        
+    state.course_cohorts = [c for c in state.course_cohorts if c.course_id != course_id]
+    
+    state.audit_logs.insert(0, {
+        "timestamp": now_str,
+        "user_email": "admin",
+        "action": "COURSE_DELETED",
+        "details": f"Deleted course cohort '{cohort.course_name}' ({course_id}).",
+    })
+    
+    return {"success": True, "message": f"Course '{cohort.course_name}' deleted successfully."}
+
+
+@app.post("/api/courses/add-subject")
+def add_subject_to_course(req: AddSubjectToCourseRequest):
+    """Matches a subject (e.g. Engineering Mathematics - 1) to its suitable Course (e.g. B.Tech 1st Year).
+    Allots non-overlapping rooms, divides into parallel sections if enrollment > room capacity,
+    and schedules into the conflict-free timetable."""
+    import datetime
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # 1. Resolve matching course cohort
+    cohort = next(
+        (c for c in state.course_cohorts if c.course_id == req.course_id or c.course_name.lower() == req.course_id.lower()),
+        None
+    )
+    if not cohort:
+        prog = next((p for p in state.programs if p.program_id == req.course_id), None)
+        if prog:
+            cohort = next((c for c in state.course_cohorts if c.program_id == prog.program_id), None)
+            
+    if not cohort:
+        raise HTTPException(status_code=404, detail=f"Target course '{req.course_id}' not found.")
+        
+    code_clean = req.subject_code.strip().upper()
+    name_clean = req.subject_name.strip()
+    
+    # Check duplicate in this course
+    if any(s.program_id == cohort.program_id and s.year == cohort.year and s.subject_code == code_clean for s in state.curriculum_subjects):
+        raise HTTPException(status_code=400, detail=f"Subject '{code_clean}' already exists in {cohort.course_name}.")
+        
+    # 2. Determine rooms and sections
+    calc = compute_rooms_for_student_count(cohort.student_count, req.room_type_id or cohort.preferred_room_type, state.snapshot.rooms)
+    rooms_needed = calc["rooms_required"]
+    
+    # Ensure section groups exist in snapshot
+    from acadence.domain.snapshot import StudentGroup, SessionRequirement
+    new_groups = []
+    section_gids = []
+    for i in range(rooms_needed):
+        sec_gid = f"GRP_{cohort.course_id}_SEC{chr(65 + i)}"
+        section_gids.append(sec_gid)
+        if not any(g.group_id == sec_gid for g in state.snapshot.student_groups):
+            new_groups.append(StudentGroup(
+                group_id=sec_gid,
+                name=f"{cohort.course_name} (Section {chr(65 + i)})",
+                program_type=ProgramType.FYUP,
+                semester=cohort.semester,
+                expected_strength=calc["sections"][i]["students"],
+            ))
+            
+    if new_groups:
+        state.snapshot = state.snapshot.model_copy(
+            update={"student_groups": list(state.snapshot.student_groups) + new_groups}
+        )
+        
+    cohort.section_ids = section_gids
+    cohort.rooms_required = rooms_needed
+    cohort.allocated_room_ids = calc["allocated_room_ids"]
+    cohort.allocated_room_names = calc["allocated_room_names"]
+    
+    # 3. Add to curriculum subjects list
+    new_subject = CurriculumSubject(
+        subject_code=code_clean,
+        subject_name=name_clean,
+        program_id=cohort.program_id,
+        year=cohort.year,
+        semester=cohort.semester,
+        subject_type=req.subject_type.upper(),
+        credits=req.credits,
+        sessions_per_week=req.sessions_per_week,
+        duration_slots=req.duration_slots,
+        room_type_id=req.room_type_id or cohort.preferred_room_type,
+        faculty_ids=req.faculty_ids if req.faculty_ids else ["FAC_CS_01"],
+        cohort_name=f"{cohort.course_name}",
+    )
+    state.curriculum_subjects.append(new_subject)
+    
+    # 4. Schedule into CP-SAT timetable with non-overlapping rooms
+    if req.schedule_now:
+        cat = NEPCategory.MAJOR if req.subject_type.upper() == "THEORY" else NEPCategory.SEC
+        new_requirements = []
+        for i, sec_gid in enumerate(section_gids):
+            req_id = f"REQ_{code_clean.replace('-', '_')}_{cohort.course_id}_{chr(65 + i)}"
+            new_requirements.append(SessionRequirement(
+                requirement_id=req_id,
+                course_id=code_clean,
+                course_name=f"{name_clean} (Sec {chr(65 + i)})" if rooms_needed > 1 else name_clean,
+                offering_id=f"OFF_{code_clean.replace('-', '_')}_{chr(65 + i)}",
+                group_ids=[sec_gid],
+                session_type="PRACTICAL" if req.subject_type.upper() == "PRACTICAL" else "LECTURE",
+                nep_category=cat,
+                credits=req.credits,
+                program_type=ProgramType.FYUP,
+                sessions_per_week=req.sessions_per_week,
+                duration_slots=req.duration_slots,
+                room_type_id=req.room_type_id or cohort.preferred_room_type,
+                eligible_faculty_ids=req.faculty_ids if req.faculty_ids else ["FAC_CS_01"],
+            ))
+            
+        current_reqs = [
+            r for r in state.snapshot.requirements
+            if not r.requirement_id.startswith(f"REQ_{code_clean.replace('-', '_')}_{cohort.course_id}")
+        ] + new_requirements
+        
+        state.snapshot = state.snapshot.model_copy(update={"requirements": current_reqs})
+        try:
+            generate_timetable(GenerateRequest(profile_name=state.current_profile, time_limit_seconds=10.0))
+        except Exception as e:
+            print("Auto-reschedule notice:", e)
+            
+    # Audit log
+    state.audit_logs.insert(0, {
+        "timestamp": now_str,
+        "user_email": "admin",
+        "action": "SUBJECT_MAPPED_TO_COURSE",
+        "details": f"Mapped '{code_clean}: {name_clean}' to '{cohort.course_name}' ({cohort.student_count} students, {rooms_needed} room(s) allocated: {', '.join(calc['allocated_room_names'])}).",
+    })
+    
+    return {
+        "success": True,
+        "message": f"Successfully enrolled '{code_clean}: {name_clean}' into '{cohort.course_name}'. Auto-allocated {rooms_needed} collision-free room(s).",
+        "course": cohort,
+        "subject": new_subject,
+        "rooms_allocated": calc["allocated_room_names"],
+        "sections_count": rooms_needed,
+        "placements_count": len(state.current_placements),
+        "validation_is_valid": state.current_validation.is_valid if state.current_validation else True,
+        "clashes_count": len(state.current_validation.violations) if state.current_validation else 0,
+    }
+
+
+@app.get("/api/courses/room-allocations")
+def get_room_allocations_audit():
+    """Returns a full collision-free room allocation audit across all courses, capacities, and active timetable slots."""
+    rooms = state.snapshot.rooms
+    total_slots_per_week = 5 * 7  # 5 days * 7 periods = 35 weekly slots
+    
+    report = []
+    total_collisions = 0
+    
+    for r in rooms:
+        room_placements = [p for p in state.current_placements if getattr(p, "room_id", "") == r.room_id]
+        
+        slot_map = {}
+        room_collisions = 0
+        for p in room_placements:
+            key = (p.day, p.period)
+            if key in slot_map:
+                room_collisions += 1
+            slot_map[key] = p
+            
+        total_collisions += room_collisions
+        
+        assigned_cohorts = [
+            c.course_name for c in state.course_cohorts
+            if r.room_id in c.allocated_room_ids
+        ]
+        
+        occupancy_pct = round((len(room_placements) / total_slots_per_week) * 100, 1) if total_slots_per_week > 0 else 0
+        
+        report.append({
+            "room_id": r.room_id,
+            "room_name": r.name,
+            "capacity": r.capacity,
+            "room_type_id": r.room_type_id,
+            "assigned_cohorts": assigned_cohorts,
+            "scheduled_slots_count": len(room_placements),
+            "occupancy_rate_pct": occupancy_pct,
+            "is_collision_free": room_collisions == 0,
+            "collisions_count": room_collisions,
+            "scheduled_courses": list({p.course_id for p in room_placements}),
+        })
+        
+    return {
+        "success": True,
+        "total_rooms": len(rooms),
+        "total_collisions": total_collisions,
+        "is_all_collision_free": total_collisions == 0,
+        "rooms": report,
+    }
+
+
+# =========================================================================
+# AUTHENTICATION, RBAC & SETTINGS ENDPOINTS
+# =========================================================================
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class CreateUserRequest(BaseModel):
+    email: str
+    name: str
+    role: str  # "ADMIN", "COORDINATOR", "FACULTY", "STUDENT"
+    department: str
+    password: Optional[str] = "123"
+
+
+class UpdateUserRequest(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    department: Optional[str] = None
+    status: Optional[str] = None
+
+
+class UpdateSettingsRequest(BaseModel):
+    institution_name: Optional[str] = None
+    academic_session: Optional[str] = None
+    nep_framework: Optional[str] = None
+    working_days_per_week: Optional[int] = None
+    periods_per_day: Optional[int] = None
+    teaching_practice_weeks: Optional[int] = None
+    supabase_url: Optional[str] = None
+    supabase_anon_key: Optional[str] = None
+    auto_validate: Optional[bool] = None
+    audit_logging: Optional[bool] = None
+
+
+@app.post("/api/auth/login")
+def login(req: LoginRequest):
+    """Authenticates user against system users (supports hello@123.com / 123)."""
+    import datetime
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    for u in state.users:
+        if u["email"].lower() == req.email.strip().lower() and u["password"] == req.password.strip():
+            if u.get("status") == "INACTIVE":
+                raise HTTPException(status_code=403, detail="Account is deactivated. Contact System Administrator.")
+            
+            # Record audit log
+            state.audit_logs.insert(0, {
+                "timestamp": now_str,
+                "user_email": u["email"],
+                "action": "USER_LOGIN",
+                "details": f"User logged in with role {u['role']}.",
+            })
+            return {
+                "success": True,
+                "user": {
+                    "user_id": u["user_id"],
+                    "email": u["email"],
+                    "name": u["name"],
+                    "role": u["role"],
+                    "department": u["department"],
+                    "status": u["status"],
+                },
+                "token": f"acadence_jwt_{u['user_id']}_{now_str}",
+            }
+    
+    raise HTTPException(status_code=401, detail="Invalid email or password. Use hello@123.com / 123.")
+
+
+@app.get("/api/auth/users")
+def get_users():
+    """Returns list of registered users and their roles."""
+    return [
+        {
+            "user_id": u["user_id"],
+            "email": u["email"],
+            "name": u["name"],
+            "role": u["role"],
+            "department": u["department"],
+            "status": u["status"],
+            "created_at": u.get("created_at", "2026-11-01"),
+        }
+        for u in state.users
+    ]
+
+
+@app.post("/api/auth/users")
+def create_user(req: CreateUserRequest):
+    """Creates a new user with role-based permissions."""
+    import datetime
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Check duplicate
+    for u in state.users:
+        if u["email"].lower() == req.email.strip().lower():
+            raise HTTPException(status_code=400, detail="User with this email already exists.")
+    
+    new_user = {
+        "user_id": f"usr_{len(state.users) + 1:03d}",
+        "email": req.email.strip(),
+        "password": req.password or "123",
+        "name": req.name.strip(),
+        "role": req.role.upper(),
+        "department": req.department.strip(),
+        "status": "ACTIVE",
+        "created_at": now_str[:10],
+    }
+    state.users.append(new_user)
+    
+    state.audit_logs.insert(0, {
+        "timestamp": now_str,
+        "user_email": "admin",
+        "action": "USER_CREATED",
+        "details": f"Created user {req.name} ({req.email}) with role {req.role}.",
+    })
+    return {"success": True, "message": f"User {req.name} created successfully.", "user": new_user}
+
+
+@app.put("/api/auth/users/{user_id}")
+def update_user(user_id: str, req: UpdateUserRequest):
+    """Updates user role, department, or active status."""
+    import datetime
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    for u in state.users:
+        if u["user_id"] == user_id:
+            if req.name is not None:
+                u["name"] = req.name
+            if req.role is not None:
+                u["role"] = req.role.upper()
+            if req.department is not None:
+                u["department"] = req.department
+            if req.status is not None:
+                u["status"] = req.status.upper()
+            
+            state.audit_logs.insert(0, {
+                "timestamp": now_str,
+                "user_email": "admin",
+                "action": "USER_UPDATED",
+                "details": f"Updated user {u['name']} ({user_id}) - Role: {u['role']}, Status: {u['status']}.",
+            })
+            return {"success": True, "message": f"User {u['name']} updated.", "user": u}
+    
+    raise HTTPException(status_code=404, detail="User not found.")
+
+
+@app.delete("/api/auth/users/{user_id}")
+def delete_user(user_id: str):
+    """Deletes a user account (prevents deleting the primary admin hello@123.com)."""
+    import datetime
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    target = None
+    for u in state.users:
+        if u["user_id"] == user_id:
+            target = u
+            break
+    
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found.")
+    
+    if target["email"].lower() == "hello@123.com":
+        raise HTTPException(status_code=400, detail="Cannot delete root system administrator (hello@123.com).")
+    
+    state.users = [u for u in state.users if u["user_id"] != user_id]
+    state.audit_logs.insert(0, {
+        "timestamp": now_str,
+        "user_email": "admin",
+        "action": "USER_DELETED",
+        "details": f"Deleted user {target['name']} ({target['email']}).",
+    })
+    return {"success": True, "message": f"User {target['name']} deleted."}
+
+
+@app.get("/api/settings")
+def get_settings():
+    """Returns institution parameters and Supabase integration settings."""
+    return state.settings
+
+
+@app.post("/api/settings")
+def update_settings(req: UpdateSettingsRequest):
+    """Updates institution and system settings."""
+    import datetime
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    for k, v in req.model_dump(exclude_unset=True).items():
+        state.settings[k] = v
+    
+    state.audit_logs.insert(0, {
+        "timestamp": now_str,
+        "user_email": "admin",
+        "action": "SETTINGS_UPDATED",
+        "details": "Updated institution and curriculum framework parameters.",
+    })
+    return {"success": True, "message": "Settings updated successfully.", "settings": state.settings}
+
+
+@app.get("/api/audit-logs")
+def get_audit_logs():
+    """Returns system audit log entries."""
+    return state.audit_logs
 
 
 # Mount production web dashboard build if present

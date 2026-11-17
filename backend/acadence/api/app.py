@@ -1,6 +1,7 @@
 """FastAPI web service for Acadence Timetable Platform.
 Exposes optimization, multi-profile alternatives, live delta-validation, and timetable grids.
 """
+import os
 from typing import Dict, List, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,6 +26,7 @@ from acadence.domain.curriculum import (
     get_default_curriculum_subjects,
     get_template_curriculum_subjects,
     get_default_course_cohorts,
+    build_curriculum_institution_snapshot,
 )
 
 app = FastAPI(
@@ -44,7 +46,7 @@ app.add_middleware(
 
 # In-memory session state for active working timetable
 class AppState:
-    snapshot: ConfigSnapshot = generate_nep2020_institution_snapshot(seed=42)
+    snapshot: ConfigSnapshot
     current_placements: List[Placement] = []
     current_profile: str = "BALANCED"
     current_metrics: Optional[MetricReport] = None
@@ -61,6 +63,9 @@ state = AppState()
 state.programs = get_default_programs()
 state.curriculum_subjects = get_default_curriculum_subjects()
 state.course_cohorts = get_default_course_cohorts()
+state.snapshot = build_curriculum_institution_snapshot(
+    state.programs, state.course_cohorts, state.curriculum_subjects
+)
 
 # Pre-seed initial user accounts and system configuration
 state.users = [
@@ -113,8 +118,8 @@ state.settings = {
     "working_days_per_week": 5,
     "periods_per_day": 7,
     "teaching_practice_weeks": 4,
-    "supabase_url": "",
-    "supabase_anon_key": "",
+    "supabase_url": os.getenv("NEXT_PUBLIC_SUPABASE_URL", os.getenv("SUPABASE_URL", "https://gmukjwmwerbjwxbujsuy.supabase.co")),
+    "supabase_anon_key": os.getenv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", os.getenv("SUPABASE_KEY", "sb_publishable_GTEjmmgPM683f21WSOGkFw_GR7iDULn")),
     "auto_validate": True,
     "audit_logging": True,
 }
@@ -412,6 +417,80 @@ def export_xlsx():
         content=xlsx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": 'attachment; filename="acadence_timetable.xlsx"'},
+    )
+
+
+class PdfExportSelection(BaseModel):
+    group_ids: List[str] = []
+    faculty_ids: List[str] = []
+    room_ids: List[str] = []
+    download: bool = False
+
+
+@app.get("/api/export/pdf")
+def export_pdf_get(
+    group_ids: Optional[str] = None,
+    faculty_ids: Optional[str] = None,
+    room_ids: Optional[str] = None,
+    group_id: Optional[str] = None,
+    faculty_id: Optional[str] = None,
+    room_id: Optional[str] = None,
+    download: bool = False,
+):
+    """Downloads or previews publication-ready timetable as PDF circular."""
+    from fastapi.responses import Response
+    from acadence.export.pdf_exporter import export_to_pdf
+    if not state.current_placements:
+        generate_timetable(GenerateRequest(profile_name="BALANCED"))
+    
+    g_list = [g.strip() for g in group_ids.split(",") if g.strip()] if group_ids else []
+    if group_id and group_id not in g_list:
+        g_list.append(group_id)
+
+    f_list = [f.strip() for f in faculty_ids.split(",") if f.strip()] if faculty_ids else []
+    if faculty_id and faculty_id not in f_list:
+        f_list.append(faculty_id)
+
+    r_list = [r.strip() for r in room_ids.split(",") if r.strip()] if room_ids else []
+    if room_id and room_id not in r_list:
+        r_list.append(room_id)
+
+    pdf_bytes = export_to_pdf(
+        snapshot=state.snapshot,
+        placements=state.current_placements,
+        course_cohorts=getattr(state, "course_cohorts", None),
+        filter_group_ids=g_list,
+        filter_faculty_ids=f_list,
+        filter_room_ids=r_list,
+    )
+    disposition = "attachment" if download else "inline"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'{disposition}; filename="acadence_timetable.pdf"'},
+    )
+
+
+@app.post("/api/export/pdf")
+def export_pdf_post(req: PdfExportSelection):
+    """Generates combined PDF timetable for arbitrary selection of classes, faculty and rooms."""
+    from fastapi.responses import Response
+    from acadence.export.pdf_exporter import export_to_pdf
+    if not state.current_placements:
+        generate_timetable(GenerateRequest(profile_name="BALANCED"))
+    pdf_bytes = export_to_pdf(
+        snapshot=state.snapshot,
+        placements=state.current_placements,
+        course_cohorts=getattr(state, "course_cohorts", None),
+        filter_group_ids=req.group_ids,
+        filter_faculty_ids=req.faculty_ids,
+        filter_room_ids=req.room_ids,
+    )
+    disposition = "attachment" if req.download else "inline"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'{disposition}; filename="acadence_timetable.pdf"'},
     )
 
 
@@ -894,10 +973,12 @@ def delete_course(requirement_id: str):
 @app.post("/api/admin/reset")
 def reset_to_default_pilot():
     """Resets to baseline academic dataset snapshot."""
-    state.snapshot = generate_nep2020_institution_snapshot(seed=42)
     state.programs = get_default_programs()
     state.curriculum_subjects = get_default_curriculum_subjects()
     state.course_cohorts = get_default_course_cohorts()
+    state.snapshot = build_curriculum_institution_snapshot(
+        state.programs, state.course_cohorts, state.curriculum_subjects
+    )
     gen_res = generate_timetable(GenerateRequest(profile_name="BALANCED"))
     return {
         "success": True,
@@ -1261,7 +1342,15 @@ def get_courses():
             "allocated_room_ids": c.allocated_room_ids if c.allocated_room_ids else calc["allocated_room_ids"],
             "allocated_room_names": c.allocated_room_names if c.allocated_room_names else calc["allocated_room_names"],
             "section_ids": c.section_ids,
-            "sections": calc["sections"],
+            "sections": [
+                {
+                    **sec,
+                    "section_id": c.section_ids[i] if (c.section_ids and i < len(c.section_ids)) else f"{c.course_id}_SEC_{chr(65+i)}",
+                    "allocated_room_id": sec["room_id"],
+                    "allocated_room_name": sec["room_name"],
+                }
+                for i, sec in enumerate(calc["sections"])
+            ],
             "description": c.description,
             "subjects_count": len(matched_subjects),
             "subjects": [s.model_dump() for s in matched_subjects],

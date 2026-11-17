@@ -23,6 +23,10 @@ interface SidebarProps {
   // Theme Toggle
   theme: 'dark' | 'light';
   onToggleTheme: () => void;
+  // Active Filter for Context-Aware Export
+  activeEntityId?: string;
+  viewType?: 'GROUP' | 'FACULTY' | 'ROOM';
+  onOpenPrintModal?: () => void;
 }
 
 export function Sidebar({
@@ -38,17 +42,49 @@ export function Sidebar({
   isSolving,
   theme,
   onToggleTheme,
+  activeEntityId,
+  viewType,
+  onOpenPrintModal,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const isDark = theme === 'dark';
 
   const handleDownload = (endpoint: string, filename: string) => {
+    let url = endpoint;
+    if (endpoint.includes('/api/export/csv') && activeEntityId) {
+      if (viewType === 'GROUP') {
+        url += `?group_id=${encodeURIComponent(activeEntityId)}`;
+      } else if (viewType === 'FACULTY') {
+        url += `?faculty_id=${encodeURIComponent(activeEntityId)}`;
+      } else if (viewType === 'ROOM') {
+        url += `?room_id=${encodeURIComponent(activeEntityId)}`;
+      }
+    }
     const link = document.createElement('a');
-    link.href = endpoint;
+    link.href = url;
     link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handlePrintPdf = () => {
+    let url = '/api/export/pdf';
+    const params = new URLSearchParams();
+    if (activeEntityId) {
+      if (viewType === 'GROUP') {
+        params.append('group_id', activeEntityId);
+      } else if (viewType === 'FACULTY') {
+        params.append('faculty_id', activeEntityId);
+      } else if (viewType === 'ROOM') {
+        params.append('room_id', activeEntityId);
+      }
+    }
+    const qs = params.toString();
+    if (qs) {
+      url += `?${qs}`;
+    }
+    window.open(url, '_blank');
   };
 
   const roleColors: Record<UserRole, { badge: string; text: string; gradient: string }> = {
@@ -336,8 +372,8 @@ export function Sidebar({
               </button>
 
               <button
-                onClick={() => window.print()}
-                title="Print Official Timetable Circular"
+                onClick={onOpenPrintModal || handlePrintPdf}
+                title="Print & Export Timetable Circular (PDF)"
                 className={`flex items-center gap-2 p-2.5 rounded-xl text-xs font-bold transition border cursor-pointer ${
                   isDark 
                     ? 'bg-slate-900/40 hover:bg-slate-900 border-slate-800/80 hover:border-amber-500/40 text-slate-200' 

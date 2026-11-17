@@ -24,6 +24,11 @@ from acadence.domain.objectives import (
     MetricReport,
     SEEDED_PROFILES,
 )
+from acadence.domain.curriculum import (
+    CourseCohort,
+    AcademicProgram,
+    CurriculumSubject,
+)
 
 __all__ = [
     "Hardness",
@@ -46,5 +51,8 @@ __all__ = [
     "ObjectiveProfile",
     "MetricReport",
     "SEEDED_PROFILES",
+    "CourseCohort",
+    "AcademicProgram",
+    "CurriculumSubject",
 ]
 

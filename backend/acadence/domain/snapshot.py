@@ -4,7 +4,7 @@ Follows DATA-039 and Section 7.4 / Section 10.3 NEP 2020 Multidisciplinary Guide
 from __future__ import annotations
 import hashlib
 import json
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Union
 from pydantic import BaseModel, Field
 
 from acadence.domain.enums import NEPCategory, ProgramType
@@ -45,7 +45,7 @@ class StudentGroup(BaseModel):
     name: str
     parent_id: Optional[str] = None  # None for root cohorts, section id for batches
     expected_strength: int = 30
-    program_type: ProgramType = ProgramType.FYUP
+    program_type: Union[ProgramType, str] = ProgramType.FYUP
     semester: int = 3
 
     model_config = {"frozen": True}
@@ -93,7 +93,7 @@ class SessionRequirement(BaseModel):
     session_type: str  # 'LECTURE', 'TUTORIAL', 'PRACTICAL', 'FIELD_WORK', 'SCHOOL_INTERNSHIP'
     nep_category: NEPCategory = NEPCategory.MAJOR
     credits: int = 4
-    program_type: ProgramType = ProgramType.FYUP
+    program_type: Union[ProgramType, str] = ProgramType.FYUP
     sessions_per_week: int = 1
     duration_slots: int = 1  # 1 for theory, 2 for practicals / internships
     room_type_id: Optional[str] = None

@@ -2,8 +2,18 @@
 Supports full multi-year, multi-semester academic programs (e.g. B.Tech 4 Years, BCA 3 Years, MBA 2 Years)
 and year-wise / semester-wise subject relationship mapping.
 """
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Set
 from pydantic import BaseModel, Field
+from acadence.domain.enums import NEPCategory, ProgramType
+from acadence.domain.snapshot import (
+    ConfigSnapshot,
+    TimeGrid,
+    TimeSlot,
+    StudentGroup,
+    Room,
+    Faculty,
+    SessionRequirement,
+)
 
 
 class AcademicProgram(BaseModel):
@@ -964,4 +974,179 @@ def get_template_curriculum_subjects() -> List[CurriculumSubject]:
     ])
 
     return subjects
+
+
+def build_curriculum_institution_snapshot(
+    programs: Optional[List[AcademicProgram]] = None,
+    cohorts: Optional[List[CourseCohort]] = None,
+    curriculum_subjects: Optional[List[CurriculumSubject]] = None,
+) -> ConfigSnapshot:
+    """Builds a complete, solvable institutional snapshot directly from registered course cohorts and curriculum subjects."""
+    if programs is None:
+        programs = get_default_programs()
+    if cohorts is None:
+        cohorts = get_default_course_cohorts()
+    if curriculum_subjects is None:
+        curriculum_subjects = get_default_curriculum_subjects()
+
+    num_days = 5
+    periods_per_day = 8
+    slots: List[TimeSlot] = []
+    for d in range(num_days):
+        for p in range(periods_per_day):
+            g_idx = d * periods_per_day + p
+            is_break = (p == 3)
+            slots.append(
+                TimeSlot(
+                    slot_id=f"SLOT_{d}_{p}",
+                    day=d,
+                    period=p,
+                    global_index=g_idx,
+                    is_teachable=True,
+                    break_after=is_break,
+                )
+            )
+
+    grid = TimeGrid(
+        grid_id="GRID_NEP_2020",
+        name="Master Time Grid",
+        num_days=num_days,
+        periods_per_day=periods_per_day,
+        slots=slots,
+    )
+
+    rooms = [
+        Room(room_id="SMART_LH_101", name="Smart Lecture Hall 101", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD", "AUDIO_VISUAL"}),
+        Room(room_id="SMART_LH_102", name="Smart Lecture Hall 102", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD", "AUDIO_VISUAL"}),
+        Room(room_id="SMART_LH_103", name="Smart Lecture Hall 103", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD"}),
+        Room(room_id="SMART_LH_104", name="Smart Lecture Hall 104", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD"}),
+        Room(room_id="COMP_LAB_1", name="Computer & AI Laboratory", room_type_id="COMPUTER_LAB", capacity=75, features={"COMPUTERS", "INTERNET"}),
+        Room(room_id="COMP_LAB_2", name="Digital Skills & Analytics Lab", room_type_id="COMPUTER_LAB", capacity=75, features={"COMPUTERS", "INTERNET"}),
+        Room(room_id="PEDAGOGY_LAB_1", name="Teacher Education Pedagogy Hall", room_type_id="PEDAGOGY_ROOM", capacity=60, features={"MICRO_TEACHING"}),
+        Room(room_id="SCIENCE_LAB_1", name="Multidisciplinary Science Lab", room_type_id="SCIENCE_LAB", capacity=60, features={"LAB_EQUIPMENT"}),
+    ]
+
+    faculty = [
+        Faculty(faculty_id="FAC_CS_01", name="Dr. Alan Turing", department_id="COMPUTER_SCIENCE", designation="Professor", max_hours_week=16),
+        Faculty(faculty_id="FAC_CS_02", name="Dr. Ada Lovelace", department_id="COMPUTER_SCIENCE", designation="Assistant Professor", max_hours_week=16),
+        Faculty(faculty_id="FAC_CS_03", name="Dr. Grace Hopper", department_id="COMPUTER_SCIENCE", designation="Associate Professor", max_hours_week=16),
+        Faculty(faculty_id="FAC_CS_04", name="Dr. Tim Berners-Lee", department_id="COMPUTER_SCIENCE", designation="Professor", max_hours_week=16),
+        Faculty(faculty_id="FAC_CS_05", name="Dr. Geoffrey Hinton", department_id="COMPUTER_SCIENCE", designation="Professor", max_hours_week=16),
+        Faculty(faculty_id="FAC_MATH_01", name="Dr. Srinivasa Ramanujan", department_id="MATHEMATICS", designation="Professor", max_hours_week=16),
+        Faculty(faculty_id="FAC_MATH_02", name="Dr. Katherine Johnson", department_id="MATHEMATICS", designation="Assistant Professor", max_hours_week=16),
+        Faculty(faculty_id="FAC_PHY_01", name="Dr. Salim Ali", department_id="PHYSICS", designation="Associate Professor", max_hours_week=16),
+        Faculty(faculty_id="FAC_ENG_01", name="Dr. Rabindranath Tagore", department_id="ENGINEERING", designation="Professor", max_hours_week=16),
+        Faculty(faculty_id="FAC_EDU_01", name="Prof. S. Radhakrishnan", department_id="EDUCATION", designation="Professor", max_hours_week=16),
+        Faculty(faculty_id="FAC_ECO_01", name="Dr. Amartya Sen", department_id="ECONOMICS", designation="Professor", max_hours_week=16),
+    ]
+
+    # Distributed faculty assignment to keep individual loads well below 16 hours
+    sub_faculty_map: Dict[str, List[str]] = {
+        # Year 1 (Sem 1)
+        "CS-101": ["FAC_CS_01"],
+        "CS-101P": ["FAC_CS_02"],
+        "MTH-101": ["FAC_MATH_01"],
+        "PHY-101": ["FAC_PHY_01"],
+        # Year 1 (Sem 2)
+        "CS-102": ["FAC_CS_02"],
+        "CS-102P": ["FAC_CS_01"],
+        "MTH-102": ["FAC_MATH_01"],
+        "EEE-101": ["FAC_ENG_01"],
+        # Year 2 (Sem 3)
+        "CS-201": ["FAC_CS_03"],
+        "CS-201P": ["FAC_CS_02"],
+        "CS-202": ["FAC_CS_01"],
+        "CS-203": ["FAC_MATH_02"],
+        # Year 3 (Sem 5)
+        "CS-301": ["FAC_CS_04"],
+        "CS-301P": ["FAC_CS_03"],
+        "CS-302": ["FAC_CS_02"],
+        "CS-303": ["FAC_CS_04"],
+        # Year 4 (Sem 7)
+        "CS-401": ["FAC_CS_05"],
+        "CS-401P": ["FAC_CS_05"],
+        "CS-402": ["FAC_CS_04"],
+        "CS-403": ["FAC_CS_05"],
+    }
+
+    student_groups: List[StudentGroup] = []
+    requirements: List[SessionRequirement] = []
+
+    for cohort in cohorts:
+        parent_gid = f"GRP_{cohort.course_id}"
+        student_groups.append(
+            StudentGroup(
+                group_id=parent_gid,
+                name=cohort.course_name,
+                expected_strength=cohort.student_count,
+                program_type=cohort.program_id,
+                semester=cohort.semester,
+            )
+        )
+
+        section_gids: List[str] = []
+        for i in range(cohort.rooms_required):
+            sec_letter = chr(65 + i)
+            sec_gid = f"GRP_{cohort.course_id}_SEC{sec_letter}"
+            section_gids.append(sec_gid)
+            student_groups.append(
+                StudentGroup(
+                    group_id=sec_gid,
+                    name=f"{cohort.course_name} (Section {sec_letter})",
+                    parent_id=parent_gid,
+                    expected_strength=cohort.student_count // cohort.rooms_required,
+                    program_type=cohort.program_id,
+                    semester=cohort.semester,
+                )
+            )
+
+        # Match enrolled subjects for this cohort's year and semester
+        cohort_subs = [
+            s for s in curriculum_subjects
+            if s.program_id == cohort.program_id and s.year == cohort.year and s.semester == cohort.semester
+        ]
+        if not cohort_subs:
+            cohort_subs = [
+                s for s in curriculum_subjects
+                if s.program_id == cohort.program_id and s.year == cohort.year
+            ][:4]
+
+        for sub in cohort_subs:
+            fac_ids = sub_faculty_map.get(sub.subject_code)
+            if not fac_ids:
+                fac_ids = [fid for fid in sub.faculty_ids if any(f.faculty_id == fid for f in faculty)]
+            if not fac_ids:
+                fac_ids = ["FAC_CS_01"] if sub.room_type_id == "LECTURE_HALL" else ["FAC_CS_02"]
+
+            for i, sec_gid in enumerate(section_gids):
+                sec_letter = chr(65 + i)
+                req_id = f"REQ_{sub.subject_code.replace('-', '_')}_{cohort.course_id}_{sec_letter}"
+                requirements.append(
+                    SessionRequirement(
+                        requirement_id=req_id,
+                        course_id=sub.subject_code,
+                        course_name=f"{sub.subject_name} ({sec_letter})" if len(section_gids) > 1 else sub.subject_name,
+                        offering_id=f"OFF_{req_id}",
+                        group_ids=[sec_gid],
+                        session_type="PRACTICAL" if sub.subject_type == "PRACTICAL" else "LECTURE",
+                        nep_category=NEPCategory.MAJOR if sub.subject_type == "THEORY" else NEPCategory.SEC,
+                        credits=sub.credits,
+                        sessions_per_week=sub.sessions_per_week,
+                        duration_slots=sub.duration_slots,
+                        room_type_id=sub.room_type_id,
+                        eligible_faculty_ids=fac_ids,
+                    )
+                )
+
+    return ConfigSnapshot(
+        snapshot_id="SNAP_CURRICULUM_LIVE",
+        institution_id="INST_NEP2020_001",
+        term_id="FALL_2026",
+        version="2.0",
+        time_grid=grid,
+        student_groups=student_groups,
+        rooms=rooms,
+        faculty=faculty,
+        requirements=requirements,
+    )
 

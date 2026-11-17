@@ -72,7 +72,7 @@ interface FacultyMember {
 
 interface CurriculumStudioProps {
   theme: 'dark' | 'light';
-  onNavigateTimetable?: (programId?: string, groupId?: string) => void;
+  onNavigateTimetable?: (programId?: string, groupId?: string, semester?: number, year?: number) => void;
   onRefreshData?: () => void;
 }
 
@@ -550,13 +550,29 @@ export function CurriculumStudio({
                           </p>
                         </div>
 
-                        <button
-                          onClick={() => handleOpenAddSubjectModal(sem.semester)}
-                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>Add Subject</span>
-                        </button>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {onNavigateTimetable && (
+                            <button
+                              onClick={() => onNavigateTimetable(selectedProgramId, undefined, sem.semester, selectedYear)}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border cursor-pointer ${
+                                isDark
+                                  ? 'bg-slate-800 hover:bg-slate-700 text-indigo-300 border-indigo-500/30'
+                                  : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
+                              }`}
+                              title={`View Timetable Schedule for ${sem.sem_label}`}
+                            >
+                              <Calendar className="w-3.5 h-3.5 text-indigo-500" />
+                              <span>View Timetable &rarr;</span>
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleOpenAddSubjectModal(sem.semester)}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Add Subject</span>
+                          </button>
+                        </div>
                       </div>
 
                       {/* Subject Cards */}

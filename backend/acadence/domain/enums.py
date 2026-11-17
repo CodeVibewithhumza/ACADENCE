@@ -39,7 +39,9 @@ class NEPCategory(str, Enum):
 
 
 class ProgramType(str, Enum):
-    """Academic Programmes under NEP 2020."""
+    """Academic Programmes under NEP 2020 and Degree Curricula."""
+    BTECH_CSE = "BTECH_CSE"
+    BTECH = "BTECH"
     FYUP = "FYUP"      # Four-Year Undergraduate Programme (B.A./B.Sc./B.Com)
     ITEP = "ITEP"      # Integrated Teacher Education Programme (4-Year B.Sc.-B.Ed. / B.A.-B.Ed.)
     B_ED = "B_ED"      # Bachelor of Education (2-Year)

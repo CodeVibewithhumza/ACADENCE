@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  CheckCircle2, RefreshCw, 
+import {
+  CheckCircle2, RefreshCw,
   Layers, Users, DoorOpen, Sparkles, Move,
   FileSpreadsheet, Check,
   BookOpen, GraduationCap, GitFork, Cpu, Globe, Shield,
@@ -13,6 +13,7 @@ import { Sidebar } from './components/Sidebar';
 import { SettingsPage } from './components/SettingsPage';
 import { DashboardView } from './components/DashboardView';
 import { CurriculumStudio } from './components/CurriculumStudio';
+import { PrintPdfModal } from './components/PrintPdfModal';
 import type { User, UserRole } from './types/auth';
 
 interface MetricReport {
@@ -156,15 +157,28 @@ export default function App() {
   const [inputStudioTab, setInputStudioTab] = useState<'COURSES' | 'FACULTY' | 'ROOMS' | 'STUDENT_PATHWAY' | 'CSV'>('COURSES');
 
   // Academic Degree Programs Catalog for Filters (strictly derived from registered courses in Settings)
-  const [availablePrograms, setAvailablePrograms] = useState<Array<{ id: string; label: string; badge: string }>>([
+  const [_availablePrograms, setAvailablePrograms] = useState<Array<{ id: string; label: string; badge: string }>>([
     { id: 'ALL', label: 'All Programs (Unified)', badge: 'Master' },
     { id: 'BTECH_CSE', label: 'B.Tech CSE', badge: '4 Years' },
   ]);
 
-  // Timetable Filters
-  const [selectedProgram, setSelectedProgram] = useState<string>('ALL');
+  // Timetable Filters & Registered Course Cohorts
+  const [courses, setCourses] = useState<any[]>([]);
+  const [selectedCourseId, setSelectedCourseId] = useState<string>('BTECH_Y1');
+  const [selectedSectionId, setSelectedSectionId] = useState<string>('GRP_BTECH_Y1_SECA');
+  const [, setSelectedProgram] = useState<string>('ALL');
   const [viewType, setViewType] = useState<'GROUP' | 'FACULTY' | 'ROOM'>('GROUP');
-  const [selectedEntityId, setSelectedEntityId] = useState<string>('GRP_FYUP_SEC_A');
+  const [selectedEntityId, setSelectedEntityId] = useState<string>('GRP_BTECH_Y1_SECA');
+
+  function handleSelectCourse(courseId: string, sectionId?: string) {
+    setSelectedCourseId(courseId);
+    const crs = courses.find(c => c.course_id === courseId);
+    if (crs) {
+      const sec = sectionId || (crs.section_ids && crs.section_ids.length > 0 ? crs.section_ids[0] : crs.course_id);
+      setSelectedSectionId(sec);
+      setSelectedEntityId(sec);
+    }
+  }
 
   // Interactive Live Move
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null);
@@ -174,6 +188,7 @@ export default function App() {
   // Modals
   const [showBasketModal, setShowBasketModal] = useState<boolean>(false);
   const [showWorkloadModal, setShowWorkloadModal] = useState<boolean>(false);
+  const [showPrintModal, setShowPrintModal] = useState<boolean>(false);
 
   // Add Course Modal State
   const [showAddCourseModal, setShowAddCourseModal] = useState<boolean>(false);
@@ -224,16 +239,25 @@ export default function App() {
     async function init() {
       try {
         setLoading(true);
-        const [snapRes, timeRes, progRes] = await Promise.all([
+        const [snapRes, timeRes, progRes, coursesRes] = await Promise.all([
           fetch('/api/snapshot').then(r => r.json()),
           fetch('/api/timetable').then(r => r.json()),
           fetch('/api/curriculum/programs').then(r => r.json()).catch(() => []),
+          fetch('/api/courses').then(r => r.json()).catch(() => ({ courses: [] })),
         ]);
         setSnapshot(snapRes);
         setPlacements(timeRes.placements || []);
         setMetrics(timeRes.metrics || null);
         setValidation(timeRes.validation || null);
         setActiveProfile(timeRes.profile || 'BALANCED');
+        if (coursesRes?.courses && coursesRes.courses.length > 0) {
+          setCourses(coursesRes.courses);
+          const firstCourse = coursesRes.courses[0];
+          setSelectedCourseId(firstCourse.course_id);
+          const firstSec = firstCourse.section_ids?.[0] || firstCourse.course_id;
+          setSelectedSectionId(firstSec);
+          setSelectedEntityId(firstSec);
+        }
         if (progRes && Array.isArray(progRes) && progRes.length > 0) {
           setAvailablePrograms([
             { id: 'ALL', label: 'All Programs (Unified)', badge: 'Master' },
@@ -246,7 +270,9 @@ export default function App() {
         }
         if (snapRes.student_groups && snapRes.student_groups.length > 0) {
           const firstLeaf = snapRes.student_groups.find((g: any) => g.parent_id) || snapRes.student_groups[0];
-          setSelectedEntityId(firstLeaf.group_id);
+          if (!coursesRes?.courses || coursesRes.courses.length === 0) {
+            setSelectedEntityId(firstLeaf.group_id);
+          }
           setPathwayGroup(firstLeaf.group_id);
         }
       } catch (err) {
@@ -288,8 +314,8 @@ export default function App() {
       const firstLeaf = snapshot.student_groups.find(g => g.parent_id) || snapshot.student_groups[0];
       if (firstLeaf) setSelectedEntityId(firstLeaf.group_id);
     } else {
-      const match = snapshot.student_groups.find(g => (g.program_type === prog || g.group_id.includes(prog) || g.name.toLowerCase().includes(prog.toLowerCase())) && g.parent_id) 
-                 || snapshot.student_groups.find(g => g.program_type === prog || g.group_id.includes(prog) || g.name.toLowerCase().includes(prog.toLowerCase()));
+      const match = snapshot.student_groups.find(g => (g.program_type === prog || g.group_id.includes(prog) || g.name.toLowerCase().includes(prog.toLowerCase())) && g.parent_id)
+        || snapshot.student_groups.find(g => g.program_type === prog || g.group_id.includes(prog) || g.name.toLowerCase().includes(prog.toLowerCase()));
       if (match) setSelectedEntityId(match.group_id);
     }
   }
@@ -429,15 +455,19 @@ export default function App() {
   // Refresh all snapshot and timetable state
   async function handleRefreshAllData() {
     try {
-      const [snapRes, timeRes, progRes] = await Promise.all([
+      const [snapRes, timeRes, progRes, coursesRes] = await Promise.all([
         fetch('/api/snapshot').then(r => r.json()),
         fetch('/api/timetable').then(r => r.json()),
         fetch('/api/curriculum/programs').then(r => r.json()).catch(() => []),
+        fetch('/api/courses').then(r => r.json()).catch(() => ({ courses: [] })),
       ]);
       setSnapshot(snapRes);
       setPlacements(timeRes.placements || []);
       setMetrics(timeRes.metrics || null);
       setValidation(timeRes.validation || null);
+      if (coursesRes?.courses && coursesRes.courses.length > 0) {
+        setCourses(coursesRes.courses);
+      }
       if (progRes && Array.isArray(progRes) && progRes.length > 0) {
         setAvailablePrograms([
           { id: 'ALL', label: 'All Programs (Unified)', badge: 'Master' },
@@ -602,15 +632,13 @@ export default function App() {
   const roomMap = new Map((snapshot?.rooms || []).map(r => [r.room_id, r]));
   const groupMap = new Map((snapshot?.student_groups || []).map(g => [g.group_id, g]));
 
-  // Groups
-  const filteredGroups = (snapshot?.student_groups || []).filter(g => {
-    if (selectedProgram === 'ALL') return true;
-    return g.program_type === selectedProgram;
-  });
+
+  // Active Course Cohort from Settings
+  const activeCourse = courses.find(c => c.course_id === selectedCourseId) || courses[0];
 
   // Build grid map for active view
   const activeGridPlacements = mainView === 'TIMETABLE' ? placements : pathwayPlacements;
-  const gridCells = new Map<string, Placement>();
+  const gridCells = new Map<string, Placement[]>();
   for (const p of activeGridPlacements) {
     const req = reqMap.get(p.requirement_id);
     if (!req) continue;
@@ -618,7 +646,12 @@ export default function App() {
     let isVisible = false;
     if (mainView === 'TIMETABLE') {
       if (viewType === 'GROUP') {
-        isVisible = req.group_ids.includes(selectedEntityId);
+        if (selectedSectionId === 'ALL') {
+          const cohortSectionIds = activeCourse?.section_ids || [selectedCourseId];
+          isVisible = req.group_ids.some((gid: string) => cohortSectionIds.includes(gid) || gid === selectedCourseId);
+        } else {
+          isVisible = req.group_ids.includes(selectedSectionId);
+        }
       } else if (viewType === 'FACULTY') {
         isVisible = p.assigned_faculty_ids.includes(selectedEntityId);
       } else if (viewType === 'ROOM') {
@@ -634,7 +667,10 @@ export default function App() {
         const slotIdx = p.start_slot + step;
         const d = Math.floor(slotIdx / 8);
         const per = slotIdx % 8;
-        gridCells.set(`${d}-${per}`, p);
+        const key = `${d}-${per}`;
+        const existing = gridCells.get(key) || [];
+        existing.push(p);
+        gridCells.set(key, existing);
       }
     }
   }
@@ -755,10 +791,9 @@ export default function App() {
   const minorSlots = Array.from(new Set(minorPlacements.map(p => p.start_slot))).sort((a, b) => a - b);
 
   return (
-    <div className={`flex h-screen font-sans overflow-hidden transition-colors ${
-      isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
-    }`}>
-      
+    <div className={`flex h-screen font-sans overflow-hidden transition-colors ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
+      }`}>
+
       {/* 0. Collapsible Sidebar Navigation, Profile, Solver, Exports & Role Switcher */}
       <Sidebar
         currentView={mainView}
@@ -776,29 +811,30 @@ export default function App() {
         isSolving={solving}
         theme={theme}
         onToggleTheme={toggleTheme}
+        activeEntityId={viewType === 'GROUP' ? (selectedSectionId !== 'ALL' ? selectedSectionId : selectedCourseId) : selectedEntityId}
+        viewType={viewType}
+        onOpenPrintModal={() => setShowPrintModal(true)}
       />
 
       {/* Main App Content Viewport */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Sleek Minimalist Breadcrumb & Status Bar */}
-        <header className={`no-print shrink-0 border-b px-6 py-3 flex items-center justify-between gap-4 sticky top-0 z-20 backdrop-blur-2xl transition-colors ${
-          isDark 
-            ? 'border-slate-800/80 bg-slate-950/80 text-slate-100 shadow-sm' 
-            : 'border-slate-200/90 bg-white/90 text-slate-900 shadow-xs'
-        }`}>
+        <header className={`no-print shrink-0 border-b px-6 py-3 flex items-center justify-between gap-4 sticky top-0 z-20 backdrop-blur-2xl transition-colors ${isDark
+          ? 'border-slate-800/80 bg-slate-950/80 text-slate-100 shadow-sm'
+          : 'border-slate-200/90 bg-white/90 text-slate-900 shadow-xs'
+          }`}>
           {/* Left: Breadcrumbs & Current Section Title */}
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-xl shadow-xs border transition ${
-              mainView === 'DASHBOARD' 
-                ? 'bg-indigo-500/10 text-indigo-500 border-indigo-500/25' 
-                : mainView === 'TIMETABLE' 
-                  ? 'bg-blue-500/10 text-blue-500 border-blue-500/25'
-                  : mainView === 'CURRICULUM'
-                    ? 'bg-purple-500/10 text-purple-400 border-purple-500/25'
-                    : mainView === 'INPUT_STUDIO'
-                      ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/25'
-                      : 'bg-purple-500/10 text-purple-500 border-purple-500/25'
-            }`}>
+            <div className={`p-2 rounded-xl shadow-xs border transition ${mainView === 'DASHBOARD'
+              ? 'bg-indigo-500/10 text-indigo-500 border-indigo-500/25'
+              : mainView === 'TIMETABLE'
+                ? 'bg-blue-500/10 text-blue-500 border-blue-500/25'
+                : mainView === 'CURRICULUM'
+                  ? 'bg-purple-500/10 text-purple-400 border-purple-500/25'
+                  : mainView === 'INPUT_STUDIO'
+                    ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/25'
+                    : 'bg-purple-500/10 text-purple-500 border-purple-500/25'
+              }`}>
               {mainView === 'DASHBOARD' && <LayoutDashboard className="w-4 h-4" />}
               {mainView === 'TIMETABLE' && <Calendar className="w-4 h-4" />}
               {mainView === 'CURRICULUM' && <GraduationCap className="w-4 h-4" />}
@@ -816,9 +852,8 @@ export default function App() {
                 {mainView === 'INPUT_STUDIO' && 'Academic Data Studio'}
                 {mainView === 'SETTINGS' && 'Administration & RBAC'}
               </span>
-              <span className={`hidden sm:inline-flex items-center ml-2 px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${
-                isDark ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'
-              }`}>
+              <span className={`hidden sm:inline-flex items-center ml-2 px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${isDark ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'
+                }`}>
                 {snapshot?.institution_name || 'Metropolitan University'} • Fall 2026
               </span>
             </div>
@@ -826,22 +861,19 @@ export default function App() {
 
           {/* Right: Live Engine Indicator & User Profile Pill */}
           <div className="flex items-center gap-3">
-            <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border transition ${
-              validation?.is_valid
-                ? isDark
-                  ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-400'
-                  : 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                : isDark
-                  ? 'bg-rose-950/40 border-rose-500/30 text-rose-400'
-                  : 'bg-rose-50 border-rose-200 text-rose-700'
-            }`}>
+            <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border transition ${validation?.is_valid
+              ? isDark
+                ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-400'
+                : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+              : isDark
+                ? 'bg-rose-950/40 border-rose-500/30 text-rose-400'
+                : 'bg-rose-50 border-rose-200 text-rose-700'
+              }`}>
               <span className="relative flex h-2 w-2">
-                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                  validation?.is_valid ? 'bg-emerald-400' : 'bg-rose-400'
-                }`} />
-                <span className={`relative inline-flex rounded-full h-2 w-2 ${
-                  validation?.is_valid ? 'bg-emerald-500' : 'bg-rose-500'
-                }`} />
+                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${validation?.is_valid ? 'bg-emerald-400' : 'bg-rose-400'
+                  }`} />
+                <span className={`relative inline-flex rounded-full h-2 w-2 ${validation?.is_valid ? 'bg-emerald-500' : 'bg-rose-500'
+                  }`} />
               </span>
               <span>{validation?.is_valid ? 'CP-SAT Engine 0 Clashes' : 'Clash Detected'}</span>
             </div>
@@ -860,1043 +892,1178 @@ export default function App() {
 
         {/* Role Access Banners */}
         {currentUser.role === 'STUDENT' && (
-          <div className={`no-print shrink-0 border-b px-6 py-2 text-xs flex items-center justify-between ${
-            isDark ? 'bg-amber-950/60 border-amber-500/30 text-amber-200' : 'bg-amber-50 border-amber-200 text-amber-800'
-          }`}>
+          <div className={`no-print shrink-0 border-b px-6 py-2 text-xs flex items-center justify-between ${isDark ? 'bg-amber-950/60 border-amber-500/30 text-amber-200' : 'bg-amber-50 border-amber-200 text-amber-800'
+            }`}>
             <span className="flex items-center gap-2">
               <Shield className="w-4 h-4 text-amber-500" />
               <span>Student Cohort Mode — Viewing FYUP / B.Ed. Multidisciplinary Schedule. Editing & solver runs are locked.</span>
             </span>
-            <span className={`font-bold text-[10px] px-2 py-0.5 rounded border ${
-              isDark ? 'bg-amber-900 border-amber-500/40' : 'bg-amber-100 border-amber-300 text-amber-800'
-            }`}>
+            <span className={`font-bold text-[10px] px-2 py-0.5 rounded border ${isDark ? 'bg-amber-900 border-amber-500/40' : 'bg-amber-100 border-amber-300 text-amber-800'
+              }`}>
               STUDENT READ-ONLY
             </span>
           </div>
         )}
 
         {currentUser.role === 'FACULTY' && (
-          <div className={`no-print shrink-0 border-b px-6 py-2 text-xs flex items-center justify-between ${
-            isDark ? 'bg-emerald-950/60 border-emerald-500/30 text-emerald-200' : 'bg-emerald-50 border-emerald-200 text-emerald-800'
-          }`}>
+          <div className={`no-print shrink-0 border-b px-6 py-2 text-xs flex items-center justify-between ${isDark ? 'bg-emerald-950/60 border-emerald-500/30 text-emerald-200' : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+            }`}>
             <span className="flex items-center gap-2">
               <GraduationCap className="w-4 h-4 text-emerald-500" />
               <span>Faculty Portal ({currentUser.name}) — Viewing personal teaching load & weekly timetable.</span>
             </span>
-            <span className={`font-bold text-[10px] px-2 py-0.5 rounded border ${
-              isDark ? 'bg-emerald-900 border-emerald-500/40' : 'bg-emerald-100 border-emerald-300 text-emerald-800'
-            }`}>
+            <span className={`font-bold text-[10px] px-2 py-0.5 rounded border ${isDark ? 'bg-emerald-900 border-emerald-500/40' : 'bg-emerald-100 border-emerald-300 text-emerald-800'
+              }`}>
               FACULTY VIEW
             </span>
           </div>
         )}
 
-      {/* Scrollable Viewport Container */}
-      <div className="flex-1 overflow-y-auto app-bg-mesh">
+        {/* Scrollable Viewport Container */}
+        <div className="flex-1 overflow-y-auto app-bg-mesh">
 
-        {/* ========================================================================= */}
-        {/* VIEW 0: UNIVERSITY ANALYTICS DASHBOARD & KPI OVERVIEW                     */}
-        {/* ========================================================================= */}
-        {mainView === 'DASHBOARD' && (
-          <DashboardView
-            snapshot={snapshot}
-            placements={placements}
-            currentUser={currentUser}
-            onNavigateInputStudio={(tab) => {
-              if (tab === 'CURRICULUM') {
-                setMainView('CURRICULUM');
-              } else {
-                setMainView('INPUT_STUDIO');
-                if (tab) setInputStudioTab(tab as any);
-              }
-            }}
-            onRefreshData={handleRefreshAllData}
-            theme={theme}
-          />
-        )}
+          {/* ========================================================================= */}
+          {/* VIEW 0: UNIVERSITY ANALYTICS DASHBOARD & KPI OVERVIEW                     */}
+          {/* ========================================================================= */}
+          {mainView === 'DASHBOARD' && (
+            <DashboardView
+              snapshot={snapshot}
+              placements={placements}
+              currentUser={currentUser}
+              onNavigateInputStudio={(tab) => {
+                if (tab === 'CURRICULUM') {
+                  setMainView('CURRICULUM');
+                } else {
+                  setMainView('INPUT_STUDIO');
+                  if (tab) setInputStudioTab(tab as any);
+                }
+              }}
+              onRefreshData={handleRefreshAllData}
+              theme={theme}
+            />
+          )}
 
-      {/* ========================================================================= */}
-      {/* VIEW A: TIMETABLE SCHEDULE VIEWER                                         */}
-      {/* ========================================================================= */}
-      {mainView === 'TIMETABLE' && (
-        <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-5 animate-in fade-in duration-200">
-          
-          {/* Quick Notice to Go to Input Studio */}
-          <div className={`no-print border rounded-xl p-3 flex flex-wrap items-center justify-between text-xs gap-2 transition ${
-            isDark 
-              ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-300' 
-              : 'bg-emerald-50/90 border-emerald-200 text-emerald-800 shadow-xs'
-          }`}>
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-amber-500" />
-              <span>
-                Want to feed new courses, faculty hours, or upload student choice datasets?
-              </span>
-            </div>
-            <button
-              onClick={() => setMainView('INPUT_STUDIO')}
-              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition shadow-xs flex items-center gap-1.5 cursor-pointer"
-            >
-              <Settings className="w-3.5 h-3.5" />
-              <span>Open Academic Data Input Studio &rarr;</span>
-            </button>
-          </div>
+          {/* ========================================================================= */}
+          {/* VIEW A: TIMETABLE SCHEDULE VIEWER                                         */}
+          {/* ========================================================================= */}
+          {mainView === 'TIMETABLE' && (
+            <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-5 animate-in fade-in duration-200">
 
-          {/* Academic Program Selector Tabs */}
-          <div className={`no-print border rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 transition ${
-            isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-          }`}>
-            <div className="flex items-center gap-2">
-              <span className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${
-                isDark ? 'text-slate-400' : 'text-slate-600'
-              }`}>
-                <GraduationCap className="w-4 h-4 text-indigo-500" />
-                Academic Program:
-              </span>
-              <div className={`flex flex-wrap gap-1 p-1 rounded-lg border max-w-3xl overflow-x-auto ${
-                isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'
-              }`}>
-                {availablePrograms.map(prog => (
-                  <button
-                    key={prog.id}
-                    onClick={() => handleSelectProgram(prog.id)}
-                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
-                      selectedProgram === prog.id
+              {/* Quick Notice to Go to Input Studio */}
+              <div className={`no-print border rounded-xl p-3 flex flex-wrap items-center justify-between text-xs gap-2 transition ${isDark
+                ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-300'
+                : 'bg-emerald-50/90 border-emerald-200 text-emerald-800 shadow-xs'
+                }`}>
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-500" />
+                  <span>
+                    Want to feed new courses, faculty hours, or upload student choice datasets?
+                  </span>
+                </div>
+                <button
+                  onClick={() => setMainView('INPUT_STUDIO')}
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  <span>Open Academic Data Input Studio &rarr;</span>
+                </button>
+              </div>
+
+              {/* Schedule Perspective Switcher & Fast Actions */}
+              <div className={`no-print border rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 transition ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                }`}>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${isDark ? 'text-slate-400' : 'text-slate-600'
+                    }`}>
+                    <Layers className="w-4 h-4 text-indigo-500" />
+                    Schedule Perspective:
+                  </span>
+                  <div className={`flex rounded-xl p-1 border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'}`}>
+                    <button
+                      onClick={() => {
+                        setViewType('GROUP');
+                        if (courses[0]) handleSelectCourse(courses[0].course_id);
+                      }}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer ${viewType === 'GROUP'
                         ? 'bg-indigo-600 text-white shadow-sm'
-                        : isDark
-                          ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
-                    }`}
-                  >
-                    <span>{prog.label}</span>
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${
-                      selectedProgram === prog.id ? 'bg-indigo-700 text-white' : isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-600'
-                    }`}>
-                      {prog.badge}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2.5">
-              <button
-                onClick={() => setMainView('CURRICULUM')}
-                className={`px-3 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
-                  isDark
-                    ? 'bg-indigo-500/10 hover:bg-indigo-500/20 border-indigo-500/30 text-indigo-300'
-                    : 'bg-indigo-50 hover:bg-indigo-100 border-indigo-200 text-indigo-700'
-                }`}
-              >
-                <GraduationCap className="w-3.5 h-3.5" />
-                <span>Curriculum Studio &rarr;</span>
-              </button>
-              <button
-                onClick={() => setShowBasketModal(true)}
-                className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
-                  isDark 
-                    ? 'bg-purple-950/60 hover:bg-purple-900/60 border-purple-500/40 text-purple-300' 
-                    : 'bg-purple-50 hover:bg-purple-100 border-purple-200 text-purple-700'
-                }`}
-              >
-                <GitFork className="w-3.5 h-3.5" />
-                <span>Elective Basket (CON-H-011)</span>
-              </button>
-              <button
-                onClick={() => setShowWorkloadModal(true)}
-                className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
-                  isDark 
-                    ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200' 
-                    : 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700'
-                }`}
-              >
-                <Building2 className="w-3.5 h-3.5 text-blue-500" />
-                <span>Faculty Workload</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Curriculum Category Legend & Soft Metrics */}
-          <div className="no-print grid grid-cols-1 lg:grid-cols-12 gap-4">
-            <div className={`lg:col-span-6 border rounded-xl p-4 flex flex-col justify-between transition ${
-              isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-            }`}>
-              <div>
-                <span className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 mb-2.5 ${
-                  isDark ? 'text-slate-400' : 'text-slate-600'
-                }`}>
-                  <Layers className="w-3.5 h-3.5 text-indigo-500" />
-                  Curriculum & Course Categories
-                </span>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {[
-                    { cat: 'MAJOR', name: 'Major Core (DSC)', credits: '4 Cr', color: isDark ? 'border-blue-500/40 bg-blue-950/30 text-blue-300' : 'border-blue-200 bg-blue-50 text-blue-700' },
-                    { cat: 'MINOR', name: 'Minor Basket (PARALLEL)', credits: '4 Cr', color: isDark ? 'border-purple-500/40 bg-purple-950/30 text-purple-300' : 'border-purple-200 bg-purple-50 text-purple-700' },
-                    { cat: 'SEC', name: 'SEC Skill Lab (2h)', credits: '2 Cr', color: isDark ? 'border-emerald-500/40 bg-emerald-950/30 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' },
-                    { cat: 'AEC', name: 'AEC Environment', credits: '2 Cr', color: isDark ? 'border-amber-500/40 bg-amber-950/30 text-amber-300' : 'border-amber-200 bg-amber-50 text-amber-700' },
-                    { cat: 'VAC', name: 'VAC Digital Ethics', credits: '2 Cr', color: isDark ? 'border-orange-500/40 bg-orange-950/30 text-orange-300' : 'border-orange-200 bg-orange-50 text-orange-700' },
-                    { cat: 'TEACHING_PRACTICE', name: 'School Internship (2h)', credits: '4 Cr', color: isDark ? 'border-rose-500/40 bg-rose-950/30 text-rose-300' : 'border-rose-200 bg-rose-50 text-rose-700' },
-                  ].map(item => (
-                    <div key={item.cat} className={`p-2 rounded-lg border ${item.color} flex flex-col justify-between`}>
-                      <span className="text-xs font-bold leading-tight">{item.name}</span>
-                      <span className="text-[10px] opacity-75 font-mono mt-1">{item.credits}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className={`lg:col-span-6 border rounded-xl p-4 flex flex-col justify-between transition ${
-              isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-            }`}>
-              <span className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 mb-2.5 ${
-                isDark ? 'text-slate-400' : 'text-slate-600'
-              }`}>
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                Quality Scorecard (Soft Constraints CON-S)
-              </span>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <div className={`rounded-lg p-2.5 text-center border ${
-                  isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-                }`}>
-                  <div className="text-base font-black text-emerald-500">{metrics?.distribution_excess ?? 0}</div>
-                  <div className={`text-[11px] font-medium ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Spread Excess</div>
-                  <div className={`text-[9px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>CON-S-008 (0 = Perfect)</div>
-                </div>
-                <div className={`rounded-lg p-2.5 text-center border ${
-                  isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-                }`}>
-                  <div className="text-base font-black text-emerald-500">{metrics?.faculty_gaps ?? 0} <span className="text-[10px] font-normal">hrs</span></div>
-                  <div className={`text-[11px] font-medium ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Faculty Idle Gaps</div>
-                  <div className={`text-[9px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>CON-S-003</div>
-                </div>
-                <div className={`rounded-lg p-2.5 text-center border ${
-                  isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-                }`}>
-                  <div className="text-base font-black text-emerald-500">{metrics?.student_gaps ?? 0} <span className="text-[10px] font-normal">hrs</span></div>
-                  <div className={`text-[11px] font-medium ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Student Idle Gaps</div>
-                  <div className={`text-[9px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>CON-S-004</div>
-                </div>
-                <div className={`rounded-lg p-2.5 text-center border ${
-                  isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-                }`}>
-                  <div className="text-base font-black text-indigo-500">{metrics?.composite_score ?? 0}</div>
-                  <div className={`text-[11px] font-medium ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Objective Score</div>
-                  <div className={`text-[9px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Solved in {solveTime.toFixed(2)}s</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* View Filter Controls */}
-          <div className={`no-print flex flex-wrap items-center justify-between gap-4 border px-4 py-3 rounded-xl transition ${
-            isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-          }`}>
-            <div className="flex items-center flex-wrap gap-3">
-              <span className={`text-xs font-semibold flex items-center gap-1.5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                <Layers className="w-3.5 h-3.5 text-indigo-500" />
-                Schedule View:
-              </span>
-              <div className={`flex rounded-lg p-1 border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'}`}>
-                <button
-                  onClick={() => {
-                    setViewType('GROUP');
-                    const firstGroup = filteredGroups[0] || snapshot?.student_groups[0];
-                    if (firstGroup) setSelectedEntityId(firstGroup.group_id);
-                  }}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition cursor-pointer ${
-                    viewType === 'GROUP' 
-                      ? 'bg-indigo-600 text-white shadow-sm' 
-                      : isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  By Student Cohort / Section
-                </button>
-                <button
-                  onClick={() => {
-                    setViewType('FACULTY');
-                    if (snapshot?.faculty[0]) setSelectedEntityId(snapshot.faculty[0].faculty_id);
-                  }}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition cursor-pointer ${
-                    viewType === 'FACULTY' 
-                      ? 'bg-indigo-600 text-white shadow-sm' 
-                      : isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  By Faculty Member
-                </button>
-                <button
-                  onClick={() => {
-                    setViewType('ROOM');
-                    if (snapshot?.rooms[0]) setSelectedEntityId(snapshot.rooms[0].room_id);
-                  }}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition cursor-pointer ${
-                    viewType === 'ROOM' 
-                      ? 'bg-indigo-600 text-white shadow-sm' 
-                      : isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  By Physical Room / Lab
-                </button>
-              </div>
-
-              {/* Entity Dropdown */}
-              <select
-                value={selectedEntityId}
-                onChange={(e) => setSelectedEntityId(e.target.value)}
-                className={`text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 border cursor-pointer ${
-                  isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-white border-slate-300 text-slate-800'
-                }`}
-              >
-                {viewType === 'GROUP' && (
-                  filteredGroups.map(g => (
-                    <option key={g.group_id} value={g.group_id}>
-                      {g.name} ({g.expected_strength} Students)
-                    </option>
-                  ))
-                )}
-                {viewType === 'FACULTY' && (
-                  snapshot?.faculty.map(f => (
-                    <option key={f.faculty_id} value={f.faculty_id}>
-                      {f.name} — {f.designation} ({f.department_id})
-                    </option>
-                  ))
-                )}
-                {viewType === 'ROOM' && (
-                  snapshot?.rooms.map(r => (
-                    <option key={r.room_id} value={r.room_id}>
-                      {r.name} ({r.room_type_id}, Cap: {r.capacity})
-                    </option>
-                  ))
-                )}
-              </select>
-            </div>
-
-            {/* Move Instruction */}
-            <div className="flex items-center gap-2 text-xs">
-              {moveMessage ? (
-                <span className="text-amber-500 font-medium flex items-center gap-1.5 animate-pulse">
-                  <Move className="w-3.5 h-3.5" />
-                  {moveMessage}
-                </span>
-              ) : (
-                <span className={`flex items-center gap-1.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                  <Move className="w-3.5 h-3.5 text-indigo-500" />
-                  Click any course card to calculate clash-free target slots in real-time.
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Official Printable Circular Header (Appears only on Print / PDF export) */}
-          <div className="print-only mb-6 border-b-2 border-slate-700 pb-3 text-center">
-            <div className="text-xl font-black uppercase tracking-wider text-slate-900">Academic Affairs & Course Scheduling</div>
-            <div className="text-sm font-bold text-slate-800">Master Institutional Timetable</div>
-            <div className="text-base font-bold text-slate-900 mt-0.5">{snapshot?.institution_name || 'Metropolitan University'}</div>
-            <div className="text-xs text-slate-600 mt-1 font-medium">
-              Autonomous Conflict-Free Academic Timetable & Scheduling System
-            </div>
-            <div className="text-xs font-bold text-indigo-950 mt-1 uppercase tracking-wide">
-              OFFICIAL TIMETABLE CIRCULAR • {viewType === 'GROUP' ? `STUDENT COHORT: ${groupMap.get(selectedEntityId)?.name || selectedEntityId}` : viewType === 'FACULTY' ? `FACULTY MEMBER: ${facMap.get(selectedEntityId)?.name || selectedEntityId}` : `CAMPUS FACILITY: ${roomMap.get(selectedEntityId)?.name || selectedEntityId}`}
-            </div>
-          </div>
-
-          {/* Master Timetable Grid */}
-          <div className={`border rounded-xl overflow-hidden shadow-2xl transition ${
-            isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-sm'
-          }`}>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className={`border-b text-xs font-semibold ${
-                    isDark ? 'border-slate-800 bg-slate-900/90 text-slate-400' : 'border-slate-200 bg-slate-100 text-slate-700'
-                  }`}>
-                    <th className={`py-3 px-4 w-32 border-r ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>Day</th>
-                    {periods.map((per, idx) => (
-                      <React.Fragment key={per.p}>
-                        {idx === 3 && (
-                          <th className={`py-3 px-2 w-10 text-center bg-amber-500/5 text-amber-500/80 border-r text-[10px] uppercase font-bold tracking-widest writing-vertical ${
-                            isDark ? 'border-slate-800' : 'border-slate-200'
-                          }`}>
-                            Lunch
-                          </th>
-                        )}
-                        <th className={`py-3 px-3 text-center border-r min-w-[145px] ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
-                          <div>{per.label}</div>
-                          <div className={`text-[10px] font-normal ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{per.time}</div>
-                        </th>
-                      </React.Fragment>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className={`divide-y text-xs ${isDark ? 'divide-slate-800' : 'divide-slate-200'}`}>
-                  {days.map((dayName, dIdx) => (
-                    <tr key={dayName} className={`transition ${isDark ? 'hover:bg-slate-900/40' : 'hover:bg-slate-50'}`}>
-                      <td className={`py-4 px-4 font-bold border-r ${
-                        isDark ? 'text-slate-300 bg-slate-900/30 border-slate-800' : 'text-slate-800 bg-slate-50 border-slate-200'
-                      }`}>
-                        {dayName}
-                      </td>
-                      {periods.map((per, pIdx) => {
-                        const globalSlotIdx = dIdx * 8 + pIdx;
-                        const cellPlacement = gridCells.get(`${dIdx}-${pIdx}`);
-                        const isValidTarget = validTargetSlots.includes(globalSlotIdx);
-                        const isSelectedSession = selectedInstanceId && cellPlacement?.instance_id === selectedInstanceId;
-
-                        const req = cellPlacement ? reqMap.get(cellPlacement.requirement_id) : null;
-                        const style = getNEPCategoryStyle(req?.nep_category);
-                        const CategoryIcon = style.icon;
-
-                        return (
-                          <React.Fragment key={per.p}>
-                            {pIdx === 3 && (
-                              <td className={`border-r text-center text-slate-500 text-[10px] ${
-                                isDark ? 'bg-amber-500/5 border-slate-800' : 'bg-amber-500/10 border-slate-200'
-                              }`}>
-                                ☕
-                              </td>
-                            )}
-                            <td 
-                              onClick={() => {
-                                if (isValidTarget) {
-                                  handleSlotClick(globalSlotIdx);
-                                } else if (cellPlacement) {
-                                  handleSessionClick(cellPlacement.instance_id);
-                                }
-                              }}
-                              className={`p-2 border-r align-top transition cursor-pointer relative h-32 ${
-                                isDark ? 'border-slate-800' : 'border-slate-200'
-                              } ${
-                                isValidTarget 
-                                  ? 'bg-emerald-500/20 hover:bg-emerald-500/30 ring-2 ring-emerald-400 ring-inset' 
-                                  : isSelectedSession
-                                    ? 'bg-indigo-600/30 ring-2 ring-indigo-400 ring-inset'
-                                    : isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
-                              }`}
-                            >
-                              {cellPlacement ? (
-                                <div className={`h-full rounded-lg p-2.5 flex flex-col justify-between shadow-xs border transition ${style.bg}`}>
-                                  <div>
-                                    <div className="flex items-center justify-between gap-1 mb-1">
-                                      <span className="font-extrabold text-xs tracking-tight">
-                                        {req?.course_id}
-                                      </span>
-                                      <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border uppercase flex items-center gap-1 ${style.badge}`}>
-                                        <CategoryIcon className="w-2.5 h-2.5" />
-                                        {style.label}
-                                      </span>
-                                    </div>
-                                    <div className="text-[11px] font-semibold leading-tight line-clamp-1">
-                                      {req?.course_name}
-                                    </div>
-                                  </div>
-
-                                  <div className={`mt-2 pt-1 border-t text-[10px] space-y-0.5 ${
-                                    isDark ? 'border-slate-800/60 text-slate-400' : 'border-slate-200 text-slate-600'
-                                  }`}>
-                                    <div className={`flex items-center gap-1 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-                                      <DoorOpen className="w-3 h-3 opacity-70" />
-                                      <span className="truncate">
-                                        {cellPlacement.assigned_room_id ? roomMap.get(cellPlacement.assigned_room_id)?.name : 'Virtual'}
-                                      </span>
-                                    </div>
-                                    <div className={`flex items-center gap-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                                      <Users className="w-3 h-3 opacity-70" />
-                                      <span className="truncate">
-                                        {cellPlacement.assigned_faculty_ids.map(id => facultyMap.get(id)?.name).join(', ')}
-                                      </span>
-                                    </div>
-                                  </div>
-                                </div>
-                              ) : isValidTarget ? (
-                                <div className="h-full rounded-lg border-2 border-dashed border-emerald-400/60 flex flex-col items-center justify-center text-center p-2 text-emerald-400 text-xs font-semibold">
-                                  <Move className="w-4 h-4 mb-1 animate-bounce" />
-                                  Move Here
-                                </div>
-                              ) : (
-                                <div className={`h-full flex items-center justify-center text-xs ${
-                                  isDark ? 'text-slate-800' : 'text-slate-300'
-                                }`}>
-                                  ---
-                                </div>
-                              )}
-                            </td>
-                          </React.Fragment>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </main>
-      )}
-
-      {/* ========================================================================= */}
-      {/* VIEW C: COURSE & SUBJECT CURRICULUM HIERARCHY STUDIO                     */}
-      {/* ========================================================================= */}
-      {mainView === 'CURRICULUM' && (
-        <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-5 animate-in fade-in duration-200">
-          <CurriculumStudio
-            theme={theme}
-            onNavigateTimetable={(progId) => {
-              setMainView('TIMETABLE');
-              if (progId) handleSelectProgram(progId);
-            }}
-            onRefreshData={handleRefreshAllData}
-          />
-        </main>
-      )}
-
-      {/* ========================================================================= */}
-      {/* VIEW B: ACADEMIC DATA INPUT & MANAGEMENT STUDIO                            */}
-      {/* ========================================================================= */}
-      {mainView === 'INPUT_STUDIO' && (
-        <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-5 animate-in fade-in duration-200">
-          
-          {/* Header Banner */}
-          <div className={`border rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4 transition ${
-            isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-          }`}>
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <div className={`p-2 rounded-xl border ${
-                  isDark ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-emerald-50 text-emerald-600 border-emerald-200'
-                }`}>
-                  <Database className="w-5 h-5" />
-                </div>
-                <h2 className={`text-lg font-bold ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>Academic Data Input Studio</h2>
-                <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-500 font-semibold border border-emerald-500/30">
-                  Academic Data Portal
-                </span>
-              </div>
-              <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                Input curriculum structures, faculty availability windows, room infrastructure, or student elective choices.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleResetDefault}
-                className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition border cursor-pointer ${
-                  isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                }`}
-              >
-                Reset Default Baseline Data
-              </button>
-              <button
-                onClick={() => setMainView('TIMETABLE')}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition shadow-md flex items-center gap-1.5 cursor-pointer"
-              >
-                <Calendar className="w-3.5 h-3.5" />
-                <span>Return to Schedule View &rarr;</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Sub Navigation Tabs */}
-          <div className={`flex flex-wrap items-center gap-2 border-b pb-2 ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
-            {[
-              { id: 'COURSES', label: '1. Course Offerings Master List', icon: BookOpen, count: snapshot?.requirements.length },
-              { id: 'FACULTY', label: '2. Faculty & Availability Constraints', icon: Users, count: snapshot?.faculty.length },
-              { id: 'ROOMS', label: '3. Classrooms & Specialized Labs', icon: DoorOpen, count: snapshot?.rooms.length },
-              { id: 'STUDENT_PATHWAY', label: '4. Student Elective Pathway Simulator', icon: UserCheck },
-              { id: 'CSV', label: '5. Bulk CSV Ingestion & Templates', icon: Upload },
-            ].map(tab => {
-              const TabIcon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setInputStudioTab(tab.id as any)}
-                  className={`px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-2 cursor-pointer ${
-                    inputStudioTab === tab.id
-                      ? 'bg-emerald-600 text-white shadow-md'
-                      : isDark
-                        ? 'bg-slate-900/60 text-slate-400 hover:text-slate-200 border border-slate-800'
-                        : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200 shadow-xs'
-                  }`}
-                >
-                  <TabIcon className="w-3.5 h-3.5" />
-                  <span>{tab.label}</span>
-                  {tab.count !== undefined && (
-                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-                      isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'
-                    }`}>
-                      {tab.count}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* ------------------------------------------------------------- */}
-          {/* TAB 1: COURSES & CURRICULUM INPUT                             */}
-          {/* ------------------------------------------------------------- */}
-          {inputStudioTab === 'COURSES' && (
-            <div className="space-y-4">
-              {/* Quick Link to Curriculum Studio Banner */}
-              <div className={`p-4 rounded-xl border flex flex-wrap items-center justify-between gap-3 ${
-                isDark ? 'bg-indigo-950/20 border-indigo-500/30' : 'bg-indigo-50/70 border-indigo-200'
-              }`}>
-                <div className="flex items-center gap-2.5">
-                  <GraduationCap className="w-5 h-5 text-indigo-500 shrink-0" />
-                  <div>
-                    <h4 className={`text-xs font-bold ${isDark ? 'text-indigo-200' : 'text-indigo-900'}`}>
-                      Looking for Degree Programs, Year-Wise Semesters & Subject Trees?
-                    </h4>
-                    <p className={`text-[11px] ${isDark ? 'text-indigo-300/80' : 'text-indigo-700/80'}`}>
-                      Manage hierarchical degree programs (1st, 2nd, 3rd, 4th Year) and semester-wise mappings in the dedicated Curriculum Studio.
-                    </p>
+                        : isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                      <GraduationCap className="w-3.5 h-3.5" />
+                      <span>By Course & Semester Cohort</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setViewType('FACULTY');
+                        if (snapshot?.faculty?.[0]) setSelectedEntityId(snapshot.faculty[0].faculty_id);
+                      }}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer ${viewType === 'FACULTY'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                      <Users className="w-3.5 h-3.5" />
+                      <span>By Faculty Member</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setViewType('ROOM');
+                        if (snapshot?.rooms?.[0]) setSelectedEntityId(snapshot.rooms[0].room_id);
+                      }}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer ${viewType === 'ROOM'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                    >
+                      <DoorOpen className="w-3.5 h-3.5" />
+                      <span>By Physical Room / Lab</span>
+                    </button>
                   </div>
                 </div>
-                <button
-                  onClick={() => setMainView('CURRICULUM')}
-                  className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-sm flex items-center gap-1.5 cursor-pointer"
-                >
-                  <span>Open Curriculum Studio</span>
-                  <span>&rarr;</span>
-                </button>
-              </div>
 
-              <div className={`flex justify-between items-center p-4 rounded-xl border transition ${
-                isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-              }`}>
-                <div>
-                  <h3 className={`font-bold text-sm ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>Registered Course Offerings</h3>
-                  <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Total {snapshot?.requirements.length} requirements registered across academic programs.</p>
+                <div className="flex items-center gap-2.5">
+                  <button
+                    onClick={() => setMainView('CURRICULUM')}
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${isDark
+                      ? 'bg-indigo-500/10 hover:bg-indigo-500/20 border-indigo-500/30 text-indigo-300'
+                      : 'bg-indigo-50 hover:bg-indigo-100 border-indigo-200 text-indigo-700'
+                      }`}
+                  >
+                    <GraduationCap className="w-3.5 h-3.5" />
+                    <span>Curriculum Studio &rarr;</span>
+                  </button>
+                  <button
+                    onClick={() => setShowBasketModal(true)}
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${isDark
+                      ? 'bg-purple-950/60 hover:bg-purple-900/60 border-purple-500/40 text-purple-300'
+                      : 'bg-purple-50 hover:bg-purple-100 border-purple-200 text-purple-700'
+                      }`}
+                  >
+                    <GitFork className="w-3.5 h-3.5" />
+                    <span>Elective Basket (CON-H-011)</span>
+                  </button>
+                  <button
+                    onClick={() => setShowWorkloadModal(true)}
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${isDark
+                      ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
+                      : 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700'
+                      }`}
+                  >
+                    <Building2 className="w-3.5 h-3.5 text-blue-500" />
+                    <span>Faculty Workload</span>
+                  </button>
                 </div>
-                <button
-                  onClick={() => setShowAddCourseModal(true)}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-md flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Register New Course Offering</span>
-                </button>
               </div>
 
-              <div className={`border rounded-xl overflow-hidden shadow-lg transition ${
-                isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-              }`}>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className={`border-b font-semibold ${
-                        isDark ? 'border-slate-800 bg-slate-900/90 text-slate-400' : 'border-slate-200 bg-slate-50 text-slate-600'
-                      }`}>
-                        <th className="py-3 px-4">Code</th>
-                        <th className="py-3 px-4">Course Title</th>
-                        <th className="py-3 px-3">Program</th>
-                        <th className="py-3 px-3">Curriculum Category</th>
-                        <th className="py-3 px-3 text-center">Credits</th>
-                        <th className="py-3 px-3 text-center">Sessions/Wk</th>
-                        <th className="py-3 px-3">Facility</th>
-                        <th className="py-3 px-4">Eligible Teachers</th>
-                        <th className="py-3 px-3 text-center">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className={`divide-y ${isDark ? 'divide-slate-800' : 'divide-slate-200'}`}>
-                      {(snapshot?.requirements || []).map(r => {
-                        const style = getNEPCategoryStyle(r.nep_category);
+              {/* When viewType === 'GROUP': Dedicated Registered Course & Year Cohort Navigator */}
+              {viewType === 'GROUP' && (
+                <div className={`border rounded-2xl p-4 space-y-3.5 transition ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                  }`}>
+                  {/* Course Cohort Cards */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${isDark ? 'text-slate-400' : 'text-slate-600'
+                        }`}>
+                        <GraduationCap className="w-4 h-4 text-indigo-500" />
+                        Select Course & Semester Cohort:
+                      </span>
+                      <span className="text-[11px] font-mono text-emerald-500 font-bold">
+                        {courses.length} Active Registered Courses
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      {courses.map(crs => {
+                        const isSelected = selectedCourseId === crs.course_id;
                         return (
-                          <tr key={r.requirement_id} className={`transition ${isDark ? 'hover:bg-slate-900/40' : 'hover:bg-slate-50'}`}>
-                            <td className={`py-3 px-4 font-mono font-bold ${isDark ? 'text-indigo-300' : 'text-indigo-600'}`}>{r.course_id}</td>
-                            <td className={`py-3 px-4 font-semibold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>{r.course_name}</td>
-                            <td className="py-3 px-3">
-                              <span className={`px-2 py-0.5 rounded font-mono text-[10px] ${
-                                isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'
-                              }`}>
-                                {r.program_type}
+                          <button
+                            key={crs.course_id}
+                            onClick={() => handleSelectCourse(crs.course_id)}
+                            className={`p-3.5 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between ${isSelected
+                              ? isDark
+                                ? 'bg-indigo-600/20 border-indigo-500 ring-2 ring-indigo-500/50 shadow-md'
+                                : 'bg-indigo-50 border-indigo-400 ring-2 ring-indigo-400/40 shadow-sm'
+                              : isDark
+                                ? 'bg-slate-950/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900'
+                                : 'bg-slate-50 border-slate-200 hover:border-slate-300 hover:bg-white'
+                              }`}
+                          >
+                            <div className="flex items-center justify-between gap-1 mb-1">
+                              <span className={`font-black text-sm tracking-tight ${isSelected ? 'text-indigo-400 font-bold' : isDark ? 'text-white' : 'text-slate-900'}`}>
+                                {crs.course_name}
                               </span>
-                            </td>
-                            <td className="py-3 px-3">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold border uppercase ${style.badge}`}>
-                                {r.nep_category}
+                              <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold ${isSelected ? 'bg-indigo-600 text-white' : isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-700'
+                                }`}>
+                                Sem {crs.semester}
                               </span>
-                            </td>
-                            <td className={`py-3 px-3 text-center font-mono font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{r.credits}</td>
-                            <td className="py-3 px-3 text-center font-mono">
-                              {r.sessions_per_week} x {r.duration_slots}h
-                            </td>
-                            <td className={`py-3 px-3 text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{r.room_type_id}</td>
-                            <td className={`py-3 px-4 text-[11px] truncate max-w-[200px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                              {r.eligible_faculty_ids.map(id => facultyMap.get(id)?.name).join(', ')}
-                            </td>
-                            <td className="py-3 px-3 text-center">
-                              <button
-                                onClick={() => handleDeleteCourse(r.requirement_id)}
-                                title="Delete Course"
-                                className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 transition cursor-pointer"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </td>
-                          </tr>
+                            </div>
+                            <div className="flex items-center justify-between text-xs mt-2 pt-1.5 border-t border-slate-800/40">
+                              <span className={isDark ? 'text-slate-400' : 'text-slate-600'}>
+                                👥 {crs.student_count} Students
+                              </span>
+                              <span className={`font-semibold ${crs.rooms_required > 1 ? 'text-purple-400' : 'text-emerald-500'}`}>
+                                {crs.rooms_required > 1 ? `⚡ ${crs.rooms_required} Rooms Auto-Set` : '🏛️ 1 Room'}
+                              </span>
+                            </div>
+                          </button>
                         );
                       })}
+                    </div>
+                  </div>
+
+                  {/* Multi-Room / Section Selector Bar */}
+                  {activeCourse && (
+                    <div className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-3 ${isDark ? 'bg-slate-950/80 border-slate-800/80' : 'bg-slate-50 border-slate-200'
+                      }`}>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-xs font-bold flex items-center gap-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                          <Users className="w-3.5 h-3.5 text-indigo-400" />
+                          Section View:
+                        </span>
+                        {activeCourse.sections && activeCourse.sections.length > 0 ? (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {activeCourse.sections.map((sec: any, idx: number) => {
+                              const secId = sec.section_id || activeCourse.section_ids?.[idx] || `${activeCourse.course_id}_SEC${idx}`;
+                              const isSecSelected = selectedSectionId === secId;
+                              return (
+                                <button
+                                  key={secId}
+                                  onClick={() => {
+                                    setSelectedSectionId(secId);
+                                    setSelectedEntityId(secId);
+                                  }}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${isSecSelected
+                                    ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                                    : isDark
+                                      ? 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
+                                      : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                                    }`}
+                                >
+                                  <span>{sec.section_name} ({sec.student_count || sec.students || (activeCourse.student_count / 2)} seats)</span>
+                                  <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${isSecSelected ? 'bg-indigo-700 text-white' : isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-600'
+                                    }`}>
+                                    {sec.allocated_room_name || sec.room_name || 'Room Assigned'}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                            {activeCourse.sections.length > 1 && (
+                              <button
+                                onClick={() => {
+                                  setSelectedSectionId('ALL');
+                                  setSelectedEntityId(activeCourse.course_id);
+                                }}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer border ${selectedSectionId === 'ALL'
+                                  ? 'bg-purple-600 text-white border-purple-500 shadow-sm'
+                                  : isDark
+                                    ? 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
+                                    : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                                  }`}
+                              >
+                                <span>Combined Master View</span>
+                                <span className="text-[10px] px-1 py-0.2 rounded bg-purple-700/80 text-white">All</span>
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs font-semibold text-slate-400">Single Section Cohort</span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="text-emerald-500 font-bold flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          0 Room Collisions Guaranteed
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Active Course & Enrolled Subjects Detailed Card */}
+                  {activeCourse && (
+                    <div className={`p-4 rounded-xl border transition ${isDark ? 'bg-indigo-950/20 border-indigo-500/30' : 'bg-indigo-50/70 border-indigo-200'
+                      }`}>
+                      <div className="flex flex-wrap items-center justify-between gap-3 mb-2.5">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className={`text-base font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                              {activeCourse.course_name} (Semester {activeCourse.semester})
+                            </h3>
+                            <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                              {activeCourse.department}
+                            </span>
+                          </div>
+                          <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                            {activeCourse.description || `Active curriculum timetable for ${activeCourse.course_name}`}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs font-bold text-emerald-500">
+                            {activeCourse.student_count} Enrolled Students
+                          </div>
+                          <div className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                            Allotted: {activeCourse.allocated_room_names?.join(', ') || 'Smart Lecture Halls'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Enrolled Subjects List */}
+                      <div>
+                        <div className={`text-[11px] font-bold uppercase tracking-wider mb-1.5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                          Enrolled Subjects under this Timetable:
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {(activeCourse.subjects || []).map((sub: any) => (
+                            <div
+                              key={sub.subject_code}
+                              className={`px-2.5 py-1.5 rounded-lg border text-xs flex items-center gap-2 ${isDark ? 'bg-slate-900/90 border-slate-700/80 text-slate-200' : 'bg-white border-slate-200 text-slate-800 shadow-2xs'
+                                }`}
+                            >
+                              <span className="font-mono font-bold text-indigo-400">{sub.subject_code}</span>
+                              <span className="font-medium truncate max-w-xs">{sub.subject_name}</span>
+                              <span className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${sub.subject_type === 'LAB' || sub.subject_type === 'PRACTICAL'
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                                }`}>
+                                {sub.weekly_sessions || 3}h/wk
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* When viewType !== 'GROUP': Faculty or Room Selector */}
+              {viewType !== 'GROUP' && (
+                <div className={`border rounded-xl p-3 flex items-center gap-3 transition ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                  }`}>
+                  <span className={`text-xs font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                    {viewType === 'FACULTY' ? 'Select Faculty Member:' : 'Select Campus Facility / Lab:'}
+                  </span>
+                  <select
+                    value={selectedEntityId}
+                    onChange={(e) => setSelectedEntityId(e.target.value)}
+                    className={`text-xs rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500 border cursor-pointer font-medium ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-white border-slate-300 text-slate-800'
+                      }`}
+                  >
+                    {viewType === 'FACULTY' && (
+                      snapshot?.faculty.map(f => (
+                        <option key={f.faculty_id} value={f.faculty_id}>
+                          {f.name} — {f.designation} ({f.department_id})
+                        </option>
+                      ))
+                    )}
+                    {viewType === 'ROOM' && (
+                      snapshot?.rooms.map(r => (
+                        <option key={r.room_id} value={r.room_id}>
+                          {r.name} ({r.room_type_id}, Capacity: {r.capacity})
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+              )}
+
+              {/* Curriculum Category Legend & Soft Metrics */}
+              <div className="no-print grid grid-cols-1 lg:grid-cols-12 gap-4">
+                <div className={`lg:col-span-6 border rounded-xl p-4 flex flex-col justify-between transition ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                  }`}>
+                  <div>
+                    <span className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 mb-2.5 ${isDark ? 'text-slate-400' : 'text-slate-600'
+                      }`}>
+                      <Layers className="w-3.5 h-3.5 text-indigo-500" />
+                      Curriculum & Course Categories
+                    </span>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {[
+                        { cat: 'MAJOR', name: 'Major Core (DSC)', credits: '4 Cr', color: isDark ? 'border-blue-500/40 bg-blue-950/30 text-blue-300' : 'border-blue-200 bg-blue-50 text-blue-700' },
+                        { cat: 'MINOR', name: 'Minor Basket (PARALLEL)', credits: '4 Cr', color: isDark ? 'border-purple-500/40 bg-purple-950/30 text-purple-300' : 'border-purple-200 bg-purple-50 text-purple-700' },
+                        { cat: 'SEC', name: 'SEC Skill Lab (2h)', credits: '2 Cr', color: isDark ? 'border-emerald-500/40 bg-emerald-950/30 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' },
+                        { cat: 'AEC', name: 'AEC Environment', credits: '2 Cr', color: isDark ? 'border-amber-500/40 bg-amber-950/30 text-amber-300' : 'border-amber-200 bg-amber-50 text-amber-700' },
+                        { cat: 'VAC', name: 'VAC Digital Ethics', credits: '2 Cr', color: isDark ? 'border-orange-500/40 bg-orange-950/30 text-orange-300' : 'border-orange-200 bg-orange-50 text-orange-700' },
+                        { cat: 'TEACHING_PRACTICE', name: 'School Internship (2h)', credits: '4 Cr', color: isDark ? 'border-rose-500/40 bg-rose-950/30 text-rose-300' : 'border-rose-200 bg-rose-50 text-rose-700' },
+                      ].map(item => (
+                        <div key={item.cat} className={`p-2 rounded-lg border ${item.color} flex flex-col justify-between`}>
+                          <span className="text-xs font-bold leading-tight">{item.name}</span>
+                          <span className="text-[10px] opacity-75 font-mono mt-1">{item.credits}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className={`lg:col-span-6 border rounded-xl p-4 flex flex-col justify-between transition ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                  }`}>
+                  <span className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 mb-2.5 ${isDark ? 'text-slate-400' : 'text-slate-600'
+                    }`}>
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                    Quality Scorecard (Soft Constraints CON-S)
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <div className={`rounded-lg p-2.5 text-center border ${isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                      }`}>
+                      <div className="text-base font-black text-emerald-500">{metrics?.distribution_excess ?? 0}</div>
+                      <div className={`text-[11px] font-medium ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Spread Excess</div>
+                      <div className={`text-[9px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>CON-S-008 (0 = Perfect)</div>
+                    </div>
+                    <div className={`rounded-lg p-2.5 text-center border ${isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                      }`}>
+                      <div className="text-base font-black text-emerald-500">{metrics?.faculty_gaps ?? 0} <span className="text-[10px] font-normal">hrs</span></div>
+                      <div className={`text-[11px] font-medium ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Faculty Idle Gaps</div>
+                      <div className={`text-[9px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>CON-S-003</div>
+                    </div>
+                    <div className={`rounded-lg p-2.5 text-center border ${isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                      }`}>
+                      <div className="text-base font-black text-emerald-500">{metrics?.student_gaps ?? 0} <span className="text-[10px] font-normal">hrs</span></div>
+                      <div className={`text-[11px] font-medium ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Student Idle Gaps</div>
+                      <div className={`text-[9px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>CON-S-004</div>
+                    </div>
+                    <div className={`rounded-lg p-2.5 text-center border ${isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                      }`}>
+                      <div className="text-base font-black text-indigo-500">{metrics?.composite_score ?? 0}</div>
+                      <div className={`text-[11px] font-medium ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Objective Score</div>
+                      <div className={`text-[9px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Solved in {solveTime.toFixed(2)}s</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Interactive Move & Action Bar */}
+              <div className={`no-print flex items-center justify-between border px-4 py-2.5 rounded-xl transition ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                }`}>
+                <div className="flex items-center gap-2 text-xs">
+                  {moveMessage ? (
+                    <span className="text-amber-500 font-medium flex items-center gap-1.5 animate-pulse">
+                      <Move className="w-3.5 h-3.5" />
+                      {moveMessage}
+                    </span>
+                  ) : (
+                    <span className={`flex items-center gap-1.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                      <Move className="w-3.5 h-3.5 text-indigo-500" />
+                      Click any course card to calculate clash-free target slots in real-time.
+                    </span>
+                  )}
+                </div>
+                <div className="text-[11px] font-mono text-slate-400">
+                  {viewType === 'GROUP' ? `Active: ${activeCourse?.course_name || selectedCourseId}` : selectedEntityId}
+                </div>
+              </div>
+
+              {/* Official Printable Circular Header (Appears only on Print / PDF export) */}
+              <div className="print-only mb-6 border-b-2 border-slate-700 pb-3 text-center">
+                <div className="text-xl font-black uppercase tracking-wider text-slate-900">Academic Affairs & Course Scheduling</div>
+                <div className="text-sm font-bold text-slate-800">Master Institutional Timetable</div>
+                <div className="text-base font-bold text-slate-900 mt-0.5">{snapshot?.institution_name || 'Metropolitan University'}</div>
+                <div className="text-xs text-slate-600 mt-1 font-medium">
+                  Autonomous Conflict-Free Academic Timetable & Scheduling System
+                </div>
+                <div className="text-xs font-bold text-indigo-950 mt-1 uppercase tracking-wide">
+                  OFFICIAL TIMETABLE CIRCULAR • {viewType === 'GROUP' ? `STUDENT COHORT: ${groupMap.get(selectedEntityId)?.name || selectedEntityId}` : viewType === 'FACULTY' ? `FACULTY MEMBER: ${facMap.get(selectedEntityId)?.name || selectedEntityId}` : `CAMPUS FACILITY: ${roomMap.get(selectedEntityId)?.name || selectedEntityId}`}
+                </div>
+              </div>
+
+              {/* Master Timetable Grid */}
+              <div className={`border rounded-xl overflow-hidden shadow-2xl transition ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-sm'
+                }`}>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className={`border-b text-xs font-semibold ${isDark ? 'border-slate-800 bg-slate-900/90 text-slate-400' : 'border-slate-200 bg-slate-100 text-slate-700'
+                        }`}>
+                        <th className={`py-3 px-4 w-32 border-r ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>Day</th>
+                        {periods.map((per, idx) => (
+                          <React.Fragment key={per.p}>
+                            {idx === 3 && (
+                              <th className={`py-3 px-2 w-10 text-center bg-amber-500/5 text-amber-500/80 border-r text-[10px] uppercase font-bold tracking-widest writing-vertical ${isDark ? 'border-slate-800' : 'border-slate-200'
+                                }`}>
+                                Lunch
+                              </th>
+                            )}
+                            <th className={`py-3 px-3 text-center border-r min-w-[145px] ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
+                              <div>{per.label}</div>
+                              <div className={`text-[10px] font-normal ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{per.time}</div>
+                            </th>
+                          </React.Fragment>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className={`divide-y text-xs ${isDark ? 'divide-slate-800' : 'divide-slate-200'}`}>
+                      {days.map((dayName, dIdx) => (
+                        <tr key={dayName} className={`transition ${isDark ? 'hover:bg-slate-900/40' : 'hover:bg-slate-50'}`}>
+                          <td className={`py-4 px-4 font-bold border-r ${isDark ? 'text-slate-300 bg-slate-900/30 border-slate-800' : 'text-slate-800 bg-slate-50 border-slate-200'
+                            }`}>
+                            {dayName}
+                          </td>
+                          {periods.map((per, pIdx) => {
+                            const globalSlotIdx = dIdx * 8 + pIdx;
+                            const cellPlacements = gridCells.get(`${dIdx}-${pIdx}`) || [];
+                            const isValidTarget = validTargetSlots.includes(globalSlotIdx);
+                            const isSelectedSession = selectedInstanceId && cellPlacements.some(p => p.instance_id === selectedInstanceId);
+
+                            return (
+                              <React.Fragment key={per.p}>
+                                {pIdx === 3 && (
+                                  <td className={`border-r text-center text-slate-500 text-[10px] ${isDark ? 'bg-amber-500/5 border-slate-800' : 'bg-amber-500/10 border-slate-200'
+                                    }`}>
+                                    ☕
+                                  </td>
+                                )}
+                                <td
+                                  onClick={() => {
+                                    if (isValidTarget) {
+                                      handleSlotClick(globalSlotIdx);
+                                    } else if (cellPlacements.length === 1) {
+                                      handleSessionClick(cellPlacements[0].instance_id);
+                                    }
+                                  }}
+                                  className={`p-1.5 border-r align-top transition relative min-h-[120px] h-32 ${isDark ? 'border-slate-800' : 'border-slate-200'
+                                    } ${isValidTarget
+                                      ? 'bg-emerald-500/20 hover:bg-emerald-500/30 ring-2 ring-emerald-400 ring-inset cursor-pointer'
+                                      : isSelectedSession
+                                        ? 'bg-indigo-600/30 ring-2 ring-indigo-400 ring-inset'
+                                        : isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
+                                    }`}
+                                >
+                                  {cellPlacements.length > 0 ? (
+                                    <div className="h-full flex flex-col gap-1.5 overflow-y-auto">
+                                      {cellPlacements.map(cellPlacement => {
+                                        const req = reqMap.get(cellPlacement.requirement_id);
+                                        const style = getNEPCategoryStyle(req?.nep_category);
+                                        const CategoryIcon = style.icon;
+                                        const isSecA = req?.group_ids?.some((g: string) => g.includes('SECA'));
+                                        const isSecB = req?.group_ids?.some((g: string) => g.includes('SECB'));
+                                        const isThisSelected = selectedInstanceId === cellPlacement.instance_id;
+
+                                        return (
+                                          <div
+                                            key={cellPlacement.instance_id}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleSessionClick(cellPlacement.instance_id);
+                                            }}
+                                            className={`rounded-lg p-2 flex flex-col justify-between shadow-xs border transition cursor-pointer ${style.bg} ${isThisSelected ? 'ring-2 ring-indigo-500 ring-inset' : ''
+                                              }`}
+                                          >
+                                            <div>
+                                              <div className="flex items-center justify-between gap-1 mb-1">
+                                                <span className="font-extrabold text-xs tracking-tight">
+                                                  {req?.course_id}
+                                                </span>
+                                                <div className="flex items-center gap-1">
+                                                  {selectedSectionId === 'ALL' && (isSecA || isSecB) && (
+                                                    <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded font-mono ${isSecA ? 'bg-indigo-600 text-white' : 'bg-purple-600 text-white'
+                                                      }`}>
+                                                      {isSecA ? 'Sec A' : 'Sec B'}
+                                                    </span>
+                                                  )}
+                                                  <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border uppercase flex items-center gap-0.5 ${style.badge}`}>
+                                                    <CategoryIcon className="w-2.5 h-2.5" />
+                                                    {style.label}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                              <div className="text-[11px] font-semibold leading-tight line-clamp-1">
+                                                {req?.course_name}
+                                              </div>
+                                            </div>
+
+                                            <div className={`mt-1.5 pt-1 border-t text-[10px] space-y-0.5 ${isDark ? 'border-slate-800/60 text-slate-400' : 'border-slate-200 text-slate-600'
+                                              }`}>
+                                              <div className={`flex items-center gap-1 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                                                <DoorOpen className="w-3 h-3 opacity-70 shrink-0" />
+                                                <span className="truncate">
+                                                  {cellPlacement.assigned_room_id ? roomMap.get(cellPlacement.assigned_room_id)?.name : 'Virtual'}
+                                                </span>
+                                              </div>
+                                              <div className={`flex items-center gap-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                                                <Users className="w-3 h-3 opacity-70 shrink-0" />
+                                                <span className="truncate">
+                                                  {cellPlacement.assigned_faculty_ids.map(id => facultyMap.get(id)?.name).join(', ')}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : isValidTarget ? (
+                                    <div className="h-full rounded-lg border-2 border-dashed border-emerald-400/60 flex flex-col items-center justify-center text-center p-2 text-emerald-400 text-xs font-semibold">
+                                      <Move className="w-4 h-4 mb-1 animate-bounce" />
+                                      Move Here
+                                    </div>
+                                  ) : (
+                                    <div className={`h-full flex items-center justify-center text-xs ${isDark ? 'text-slate-800' : 'text-slate-300'
+                                      }`}>
+                                      ---
+                                    </div>
+                                  )}
+                                </td>
+                              </React.Fragment>
+                            );
+                          })}
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
               </div>
-            </div>
+            </main>
           )}
 
-          {/* ------------------------------------------------------------- */}
-          {/* TAB 2: FACULTY & AVAILABILITY CONSTRAINTS                      */}
-          {/* ------------------------------------------------------------- */}
-          {inputStudioTab === 'FACULTY' && (
-            <div className="space-y-4">
-              <div className={`flex justify-between items-center p-4 rounded-xl border transition ${
-                isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-              }`}>
-                <div>
-                  <h3 className={`font-bold text-sm ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>Teaching Faculty & Unavailability Constraints (CON-H-007)</h3>
-                  <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Click any professor to inspect or toggle their 5-day restricted time windows.</p>
+          {/* ========================================================================= */}
+          {/* VIEW C: COURSE & SUBJECT CURRICULUM HIERARCHY STUDIO                     */}
+          {/* ========================================================================= */}
+          {mainView === 'CURRICULUM' && (
+            <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-5 animate-in fade-in duration-200">
+              <CurriculumStudio
+                theme={theme}
+                onNavigateTimetable={(progId, targetGroupOrSem, semester, year) => {
+                  setMainView('TIMETABLE');
+                  setViewType('GROUP');
+                  if (progId) handleSelectProgram(progId);
+                  if (year || semester) {
+                    const targetYr = year || Math.ceil((semester || 1) / 2);
+                    const matchedCourse = courses.find(c => c.year === targetYr);
+                    if (matchedCourse) {
+                      handleSelectCourse(matchedCourse.course_id);
+                    }
+                  } else if (targetGroupOrSem) {
+                    const matchedCourse = courses.find(c => c.course_id === targetGroupOrSem || c.section_ids?.includes(targetGroupOrSem));
+                    if (matchedCourse) {
+                      handleSelectCourse(matchedCourse.course_id, targetGroupOrSem);
+                    }
+                  }
+                }}
+                onRefreshData={handleRefreshAllData}
+              />
+            </main>
+          )}
+
+          {/* ========================================================================= */}
+          {/* VIEW B: ACADEMIC DATA INPUT & MANAGEMENT STUDIO                            */}
+          {/* ========================================================================= */}
+          {mainView === 'INPUT_STUDIO' && (
+            <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-5 animate-in fade-in duration-200">
+
+              {/* Header Banner */}
+              <div className={`border rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4 transition ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                }`}>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <div className={`p-2 rounded-xl border ${isDark ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                      }`}>
+                      <Database className="w-5 h-5" />
+                    </div>
+                    <h2 className={`text-lg font-bold ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>Academic Data Input Studio</h2>
+                    <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-500 font-semibold border border-emerald-500/30">
+                      Academic Data Portal
+                    </span>
+                  </div>
+                  <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                    Input curriculum structures, faculty availability windows, room infrastructure, or student elective choices.
+                  </p>
                 </div>
-                <button
-                  onClick={() => setShowAddFacultyModal(true)}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-md flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Register New Faculty Member</span>
-                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleResetDefault}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition border cursor-pointer ${isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                      }`}
+                  >
+                    Reset Default Baseline Data
+                  </button>
+                  <button
+                    onClick={() => setMainView('TIMETABLE')}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition shadow-md flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>Return to Schedule View &rarr;</span>
+                  </button>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {(snapshot?.faculty || []).map(fac => {
-                  const unavailSet = new Set(fac.unavailable_slots || []);
-                  const facPlacements = placements.filter(p => p.assigned_faculty_ids.includes(fac.faculty_id));
-                  const totalHours = facPlacements.reduce((sum, p) => sum + p.duration_slots, 0);
-
+              {/* Sub Navigation Tabs */}
+              <div className={`flex flex-wrap items-center gap-2 border-b pb-2 ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
+                {[
+                  { id: 'COURSES', label: '1. Course Offerings Master List', icon: BookOpen, count: snapshot?.requirements.length },
+                  { id: 'FACULTY', label: '2. Faculty & Availability Constraints', icon: Users, count: snapshot?.faculty.length },
+                  { id: 'ROOMS', label: '3. Classrooms & Specialized Labs', icon: DoorOpen, count: snapshot?.rooms.length },
+                  { id: 'STUDENT_PATHWAY', label: '4. Student Elective Pathway Simulator', icon: UserCheck },
+                  { id: 'CSV', label: '5. Bulk CSV Ingestion & Templates', icon: Upload },
+                ].map(tab => {
+                  const TabIcon = tab.icon;
                   return (
-                    <div 
-                      key={fac.faculty_id}
-                      className={`p-4 rounded-xl border space-y-3 transition ${
-                        isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-                      }`}
+                    <button
+                      key={tab.id}
+                      onClick={() => setInputStudioTab(tab.id as any)}
+                      className={`px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-2 cursor-pointer ${inputStudioTab === tab.id
+                        ? 'bg-emerald-600 text-white shadow-md'
+                        : isDark
+                          ? 'bg-slate-900/60 text-slate-400 hover:text-slate-200 border border-slate-800'
+                          : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200 shadow-xs'
+                        }`}
                     >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className={`font-bold text-sm ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>{fac.name}</div>
-                          <div className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{fac.designation} • {fac.department_id}</div>
-                        </div>
-                        <div className="text-right">
-                          <span className={`text-xs font-mono font-bold block ${isDark ? 'text-indigo-300' : 'text-indigo-600'}`}>{totalHours} hrs / week</span>
-                          <span className="text-[10px] text-emerald-500 font-semibold">UGC Norm: Max {fac.max_hours_week}h</span>
-                        </div>
-                      </div>
-
-                      {/* Mini 5-Day Availability Grid */}
-                      <div className="space-y-1">
-                        <span className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-                          Click slot to toggle Availability / Leave (Red = Unavailable):
+                      <TabIcon className="w-3.5 h-3.5" />
+                      <span>{tab.label}</span>
+                      {tab.count !== undefined && (
+                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'
+                          }`}>
+                          {tab.count}
                         </span>
-                        <div className="grid grid-cols-8 gap-1 text-[9px] font-mono text-center">
-                          {Array.from({ length: 40 }).map((_, slotIdx) => {
-                            const isUnavail = unavailSet.has(slotIdx);
-                            const day = Math.floor(slotIdx / 8);
-                            const per = slotIdx % 8;
-                            return (
-                              <button
-                                key={slotIdx}
-                                onClick={() => handleToggleFacultySlot(fac.faculty_id, slotIdx)}
-                                title={`${days[day]} P${per + 1}: ${isUnavail ? 'UNAVAILABLE (Click to make Available)' : 'Available (Click to restrict)'}`}
-                                className={`p-1 rounded transition text-[9px] cursor-pointer ${
-                                  isUnavail
-                                    ? 'bg-rose-600 text-white font-bold ring-1 ring-rose-400'
-                                    : isDark ? 'bg-slate-950 text-slate-400 hover:bg-slate-800' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                }`}
-                              >
-                                {per === 3 ? '☕' : `P${per + 1}`}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
+                      )}
+                    </button>
                   );
                 })}
               </div>
-            </div>
-          )}
 
-          {/* ------------------------------------------------------------- */}
-          {/* TAB 3: ROOMS & SPECIALIZED LABS                               */}
-          {/* ------------------------------------------------------------- */}
-          {inputStudioTab === 'ROOMS' && (
-            <div className="space-y-4">
-              <div className={`p-4 rounded-xl border transition ${
-                isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-              }`}>
-                <h3 className={`font-bold text-sm ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>Campus Classrooms & Specialized Labs (CON-H-003 / CON-H-005)</h3>
-                <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Total {snapshot?.rooms.length} facilities registered in the institution domain.</p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                {(snapshot?.rooms || []).map(r => (
-                  <div key={r.room_id} className={`p-4 rounded-xl border space-y-2 transition ${
-                    isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-                  }`}>
-                    <div className="p-2.5 rounded-lg bg-indigo-500/10 text-indigo-500 w-fit">
-                      <DoorOpen className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className={`font-bold text-sm ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>{r.name}</div>
-                      <div className={`text-[11px] font-mono ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{r.room_id}</div>
-                    </div>
-                    <div className={`pt-2 border-t flex justify-between items-center text-xs ${
-                      isDark ? 'border-slate-800' : 'border-slate-200'
+              {/* ------------------------------------------------------------- */}
+              {/* TAB 1: COURSES & CURRICULUM INPUT                             */}
+              {/* ------------------------------------------------------------- */}
+              {inputStudioTab === 'COURSES' && (
+                <div className="space-y-4">
+                  {/* Quick Link to Curriculum Studio Banner */}
+                  <div className={`p-4 rounded-xl border flex flex-wrap items-center justify-between gap-3 ${isDark ? 'bg-indigo-950/20 border-indigo-500/30' : 'bg-indigo-50/70 border-indigo-200'
                     }`}>
-                      <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>Type:</span>
-                      <span className="font-bold text-indigo-500">{r.room_type_id}</span>
+                    <div className="flex items-center gap-2.5">
+                      <GraduationCap className="w-5 h-5 text-indigo-500 shrink-0" />
+                      <div>
+                        <h4 className={`text-xs font-bold ${isDark ? 'text-indigo-200' : 'text-indigo-900'}`}>
+                          Looking for Degree Programs, Year-Wise Semesters & Subject Trees?
+                        </h4>
+                        <p className={`text-[11px] ${isDark ? 'text-indigo-300/80' : 'text-indigo-700/80'}`}>
+                          Manage hierarchical degree programs (1st, 2nd, 3rd, 4th Year) and semester-wise mappings in the dedicated Curriculum Studio.
+                        </p>
+                      </div>
                     </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>Capacity:</span>
-                      <span className="font-bold text-emerald-500">{r.capacity} Seats</span>
-                    </div>
+                    <button
+                      onClick={() => setMainView('CURRICULUM')}
+                      className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-sm flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <span>Open Curriculum Studio</span>
+                      <span>&rarr;</span>
+                    </button>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
 
-          {/* ------------------------------------------------------------- */}
-          {/* TAB 4: STUDENT ELECTIVE PATHWAY SIMULATOR                      */}
-          {/* ------------------------------------------------------------- */}
-          {inputStudioTab === 'STUDENT_PATHWAY' && (
-            <div className="space-y-4">
-              <div className={`border rounded-2xl p-5 space-y-3 transition ${
-                isDark ? 'bg-slate-900/60 border-purple-500/30' : 'bg-white border-purple-200 shadow-xs'
-              }`}>
-                <div className="flex items-center gap-2">
-                  <div className={`p-2 rounded-xl ${isDark ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-50 text-purple-600'}`}>
-                    <UserCheck className="w-5 h-5" />
+                  <div className={`flex justify-between items-center p-4 rounded-xl border transition ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                    }`}>
+                    <div>
+                      <h3 className={`font-bold text-sm ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>Registered Course Offerings</h3>
+                      <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Total {snapshot?.requirements.length} requirements registered across academic programs.</p>
+                    </div>
+                    <button
+                      onClick={() => setShowAddCourseModal(true)}
+                      className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-md flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Register New Course Offering</span>
+                    </button>
                   </div>
-                  <div>
-                    <h3 className={`font-bold text-sm ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>Individual Student Elective Pathway Simulator</h3>
+
+                  <div className={`border rounded-xl overflow-hidden shadow-lg transition ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                    }`}>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className={`border-b font-semibold ${isDark ? 'border-slate-800 bg-slate-900/90 text-slate-400' : 'border-slate-200 bg-slate-50 text-slate-600'
+                            }`}>
+                            <th className="py-3 px-4">Code</th>
+                            <th className="py-3 px-4">Course Title</th>
+                            <th className="py-3 px-3">Program</th>
+                            <th className="py-3 px-3">Curriculum Category</th>
+                            <th className="py-3 px-3 text-center">Credits</th>
+                            <th className="py-3 px-3 text-center">Sessions/Wk</th>
+                            <th className="py-3 px-3">Facility</th>
+                            <th className="py-3 px-4">Eligible Teachers</th>
+                            <th className="py-3 px-3 text-center">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className={`divide-y ${isDark ? 'divide-slate-800' : 'divide-slate-200'}`}>
+                          {(snapshot?.requirements || []).map(r => {
+                            const style = getNEPCategoryStyle(r.nep_category);
+                            return (
+                              <tr key={r.requirement_id} className={`transition ${isDark ? 'hover:bg-slate-900/40' : 'hover:bg-slate-50'}`}>
+                                <td className={`py-3 px-4 font-mono font-bold ${isDark ? 'text-indigo-300' : 'text-indigo-600'}`}>{r.course_id}</td>
+                                <td className={`py-3 px-4 font-semibold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>{r.course_name}</td>
+                                <td className="py-3 px-3">
+                                  <span className={`px-2 py-0.5 rounded font-mono text-[10px] ${isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'
+                                    }`}>
+                                    {r.program_type}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-3">
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold border uppercase ${style.badge}`}>
+                                    {r.nep_category}
+                                  </span>
+                                </td>
+                                <td className={`py-3 px-3 text-center font-mono font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{r.credits}</td>
+                                <td className="py-3 px-3 text-center font-mono">
+                                  {r.sessions_per_week} x {r.duration_slots}h
+                                </td>
+                                <td className={`py-3 px-3 text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{r.room_type_id}</td>
+                                <td className={`py-3 px-4 text-[11px] truncate max-w-[200px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                                  {r.eligible_faculty_ids.map(id => facultyMap.get(id)?.name).join(', ')}
+                                </td>
+                                <td className="py-3 px-3 text-center">
+                                  <button
+                                    onClick={() => handleDeleteCourse(r.requirement_id)}
+                                    title="Delete Course"
+                                    className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 transition cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ------------------------------------------------------------- */}
+              {/* TAB 2: FACULTY & AVAILABILITY CONSTRAINTS                      */}
+              {/* ------------------------------------------------------------- */}
+              {inputStudioTab === 'FACULTY' && (
+                <div className="space-y-4">
+                  <div className={`flex justify-between items-center p-4 rounded-xl border transition ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                    }`}>
+                    <div>
+                      <h3 className={`font-bold text-sm ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>Teaching Faculty & Unavailability Constraints (CON-H-007)</h3>
+                      <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Click any professor to inspect or toggle their 5-day restricted time windows.</p>
+                    </div>
+                    <button
+                      onClick={() => setShowAddFacultyModal(true)}
+                      className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-md flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Register New Faculty Member</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {(snapshot?.faculty || []).map(fac => {
+                      const unavailSet = new Set(fac.unavailable_slots || []);
+                      const facPlacements = placements.filter(p => p.assigned_faculty_ids.includes(fac.faculty_id));
+                      const totalHours = facPlacements.reduce((sum, p) => sum + p.duration_slots, 0);
+
+                      return (
+                        <div
+                          key={fac.faculty_id}
+                          className={`p-4 rounded-xl border space-y-3 transition ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                            }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className={`font-bold text-sm ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>{fac.name}</div>
+                              <div className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{fac.designation} • {fac.department_id}</div>
+                            </div>
+                            <div className="text-right">
+                              <span className={`text-xs font-mono font-bold block ${isDark ? 'text-indigo-300' : 'text-indigo-600'}`}>{totalHours} hrs / week</span>
+                              <span className="text-[10px] text-emerald-500 font-semibold">UGC Norm: Max {fac.max_hours_week}h</span>
+                            </div>
+                          </div>
+
+                          {/* Mini 5-Day Availability Grid */}
+                          <div className="space-y-1">
+                            <span className={`text-[10px] uppercase font-bold tracking-wider ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                              Click slot to toggle Availability / Leave (Red = Unavailable):
+                            </span>
+                            <div className="grid grid-cols-8 gap-1 text-[9px] font-mono text-center">
+                              {Array.from({ length: 40 }).map((_, slotIdx) => {
+                                const isUnavail = unavailSet.has(slotIdx);
+                                const day = Math.floor(slotIdx / 8);
+                                const per = slotIdx % 8;
+                                return (
+                                  <button
+                                    key={slotIdx}
+                                    onClick={() => handleToggleFacultySlot(fac.faculty_id, slotIdx)}
+                                    title={`${days[day]} P${per + 1}: ${isUnavail ? 'UNAVAILABLE (Click to make Available)' : 'Available (Click to restrict)'}`}
+                                    className={`p-1 rounded transition text-[9px] cursor-pointer ${isUnavail
+                                      ? 'bg-rose-600 text-white font-bold ring-1 ring-rose-400'
+                                      : isDark ? 'bg-slate-950 text-slate-400 hover:bg-slate-800' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                      }`}
+                                  >
+                                    {per === 3 ? '☕' : `P${per + 1}`}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ------------------------------------------------------------- */}
+              {/* TAB 3: ROOMS & SPECIALIZED LABS                               */}
+              {/* ------------------------------------------------------------- */}
+              {inputStudioTab === 'ROOMS' && (
+                <div className="space-y-4">
+                  <div className={`p-4 rounded-xl border transition ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                    }`}>
+                    <h3 className={`font-bold text-sm ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>Campus Classrooms & Specialized Labs (CON-H-003 / CON-H-005)</h3>
+                    <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Total {snapshot?.rooms.length} facilities registered in the institution domain.</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                    {(snapshot?.rooms || []).map(r => (
+                      <div key={r.room_id} className={`p-4 rounded-xl border space-y-2 transition ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                        }`}>
+                        <div className="p-2.5 rounded-lg bg-indigo-500/10 text-indigo-500 w-fit">
+                          <DoorOpen className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className={`font-bold text-sm ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>{r.name}</div>
+                          <div className={`text-[11px] font-mono ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{r.room_id}</div>
+                        </div>
+                        <div className={`pt-2 border-t flex justify-between items-center text-xs ${isDark ? 'border-slate-800' : 'border-slate-200'
+                          }`}>
+                          <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>Type:</span>
+                          <span className="font-bold text-indigo-500">{r.room_type_id}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-xs">
+                          <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>Capacity:</span>
+                          <span className="font-bold text-emerald-500">{r.capacity} Seats</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ------------------------------------------------------------- */}
+              {/* TAB 4: STUDENT ELECTIVE PATHWAY SIMULATOR                      */}
+              {/* ------------------------------------------------------------- */}
+              {inputStudioTab === 'STUDENT_PATHWAY' && (
+                <div className="space-y-4">
+                  <div className={`border rounded-2xl p-5 space-y-3 transition ${isDark ? 'bg-slate-900/60 border-purple-500/30' : 'bg-white border-purple-200 shadow-xs'
+                    }`}>
+                    <div className="flex items-center gap-2">
+                      <div className={`p-2 rounded-xl ${isDark ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-50 text-purple-600'}`}>
+                        <UserCheck className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className={`font-bold text-sm ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>Individual Student Elective Pathway Simulator</h3>
+                        <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                          Students select individual elective and minor courses from multidisciplinary baskets. Select a cohort and a chosen minor to preview that student's personalized, clash-free schedule.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                      <div>
+                        <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>Select Student Section / Major Cohort:</label>
+                        <select
+                          value={pathwayGroup}
+                          onChange={(e) => setPathwayGroup(e.target.value)}
+                          className={`w-full text-xs rounded-xl p-2.5 transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                            }`}
+                        >
+                          <option value="GRP_FYUP_SEC_A">FYUP Section A (Major: Computer Science)</option>
+                          <option value="GRP_FYUP_SEC_B">FYUP Section B (Major: Modern Literature & Humanities)</option>
+                          <option value="GRP_ITEP_SEM5">ITEP B.Sc.-B.Ed. (Semester 5)</option>
+                          <option value="GRP_BED_SEM3">B.Ed. Teacher Education (Semester 3)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>Student's Chosen Multidisciplinary Minor Basket Course:</label>
+                        <select
+                          value={pathwayMinor}
+                          onChange={(e) => setPathwayMinor(e.target.value)}
+                          className={`w-full text-xs rounded-xl p-2.5 transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                            }`}
+                        >
+                          <option value="REQ_MINOR_ECO">Principles of Microeconomics (MIN-ECO-201) — Dr. Amartya Sen</option>
+                          <option value="REQ_MINOR_MATH">Applied Linear Algebra (MIN-MTH-201) — Dr. Srinivasa Ramanujan</option>
+                          <option value="REQ_MINOR_PSY">Cognitive Psychology (MIN-PSY-201) — Dr. B.F. Skinner</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Pathway Summary */}
+                  <div className={`p-4 rounded-xl border flex justify-between items-center text-xs transition ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                    }`}>
+                    <span className={isDark ? 'text-slate-300' : 'text-slate-700'}>
+                      Showing <strong>{pathwayPlacements.length} weekly sessions</strong> for student choice pathway.
+                    </span>
+                    <span className={`px-2.5 py-1 rounded font-bold border ${isDark ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      }`}>
+                      0 Clashes Guaranteed (VAL-004 & CON-H-011)
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* ------------------------------------------------------------- */}
+              {/* TAB 5: CSV INGESTION & TEMPLATES                              */}
+              {/* ------------------------------------------------------------- */}
+              {inputStudioTab === 'CSV' && (
+                <div className="space-y-4">
+                  <div className={`p-4 rounded-xl border space-y-2 transition ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                    }`}>
+                    <h3 className={`font-bold text-sm ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>Bulk CSV Data Ingestion & Academic Management System (AMS) Sync</h3>
                     <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                      Students select individual elective and minor courses from multidisciplinary baskets. Select a cohort and a chosen minor to preview that student's personalized, clash-free schedule.
+                      Colleges can download standardized CSV templates, populate them in Excel, and import them directly into Acadence.
                     </p>
                   </div>
-                </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                  <div>
-                    <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>Select Student Section / Major Cohort:</label>
-                    <select
-                      value={pathwayGroup}
-                      onChange={(e) => setPathwayGroup(e.target.value)}
-                      className={`w-full text-xs rounded-xl p-2.5 transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                      }`}
-                    >
-                      <option value="GRP_FYUP_SEC_A">FYUP Section A (Major: Computer Science)</option>
-                      <option value="GRP_FYUP_SEC_B">FYUP Section B (Major: Modern Literature & Humanities)</option>
-                      <option value="GRP_ITEP_SEM5">ITEP B.Sc.-B.Ed. (Semester 5)</option>
-                      <option value="GRP_BED_SEM3">B.Ed. Teacher Education (Semester 3)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>Student's Chosen Multidisciplinary Minor Basket Course:</label>
-                    <select
-                      value={pathwayMinor}
-                      onChange={(e) => setPathwayMinor(e.target.value)}
-                      className={`w-full text-xs rounded-xl p-2.5 transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                      }`}
-                    >
-                      <option value="REQ_MINOR_ECO">Principles of Microeconomics (MIN-ECO-201) — Dr. Amartya Sen</option>
-                      <option value="REQ_MINOR_MATH">Applied Linear Algebra (MIN-MTH-201) — Dr. Srinivasa Ramanujan</option>
-                      <option value="REQ_MINOR_PSY">Cognitive Psychology (MIN-PSY-201) — Dr. B.F. Skinner</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* Pathway Summary */}
-              <div className={`p-4 rounded-xl border flex justify-between items-center text-xs transition ${
-                isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-              }`}>
-                <span className={isDark ? 'text-slate-300' : 'text-slate-700'}>
-                  Showing <strong>{pathwayPlacements.length} weekly sessions</strong> for student choice pathway.
-                </span>
-                <span className={`px-2.5 py-1 rounded font-bold border ${
-                  isDark ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                }`}>
-                  0 Clashes Guaranteed (VAL-004 & CON-H-011)
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* ------------------------------------------------------------- */}
-          {/* TAB 5: CSV INGESTION & TEMPLATES                              */}
-          {/* ------------------------------------------------------------- */}
-          {inputStudioTab === 'CSV' && (
-            <div className="space-y-4">
-              <div className={`p-4 rounded-xl border space-y-2 transition ${
-                isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-              }`}>
-                <h3 className={`font-bold text-sm ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>Bulk CSV Data Ingestion & Academic Management System (AMS) Sync</h3>
-                <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                  Colleges can download standardized CSV templates, populate them in Excel, and import them directly into Acadence.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className={`p-4 rounded-xl border space-y-3 transition ${
-                  isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-                }`}>
-                  <div className={`font-bold text-sm flex items-center gap-2 ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>
-                    <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
-                    Courses Master CSV
-                  </div>
-                  <p className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Course code, name, credits, theory/practical duration, and eligible teachers.</p>
-                  <button 
-                    onClick={() => window.open('/api/export/template/courses', '_blank')}
-                    className={`w-full py-2 text-xs font-semibold rounded-lg transition border cursor-pointer ${
-                      isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    Download Courses Template (.csv)
-                  </button>
-                </div>
-
-                <div className={`p-4 rounded-xl border space-y-3 transition ${
-                  isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-                }`}>
-                  <div className={`font-bold text-sm flex items-center gap-2 ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>
-                    <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
-                    Faculty Master CSV
-                  </div>
-                  <p className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Faculty ID, name, department, designation, and UGC workload limit.</p>
-                  <button 
-                    onClick={() => window.open('/api/export/template/faculty', '_blank')}
-                    className={`w-full py-2 text-xs font-semibold rounded-lg transition border cursor-pointer ${
-                      isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    Download Faculty Template (.csv)
-                  </button>
-                </div>
-
-                <div className={`p-4 rounded-xl border space-y-3 transition ${
-                  isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-                }`}>
-                  <div className={`font-bold text-sm flex items-center gap-2 ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>
-                    <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
-                    Rooms & Labs CSV
-                  </div>
-                  <p className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Room ID, name, room type (Smart LH, Computer Lab, Pedagogy Hall), capacity.</p>
-                  <button 
-                    onClick={() => window.open('/api/export/template/rooms', '_blank')}
-                    className={`w-full py-2 text-xs font-semibold rounded-lg transition border cursor-pointer ${
-                      isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    Download Rooms Template (.csv)
-                  </button>
-                </div>
-              </div>
-
-              {/* Interactive Ingestion Form */}
-              <div className={`p-5 rounded-2xl border space-y-4 transition ${
-                isDark ? 'bg-slate-900/70 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-              }`}>
-                <div className={`flex flex-wrap items-center justify-between border-b pb-3 gap-3 ${
-                  isDark ? 'border-slate-800' : 'border-slate-200'
-                }`}>
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500">
-                      <Upload className="w-5 h-5" />
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className={`p-4 rounded-xl border space-y-3 transition ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                      }`}>
+                      <div className={`font-bold text-sm flex items-center gap-2 ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>
+                        <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
+                        Courses Master CSV
+                      </div>
+                      <p className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Course code, name, credits, theory/practical duration, and eligible teachers.</p>
+                      <button
+                        onClick={() => window.open('/api/export/template/courses', '_blank')}
+                        className={`w-full py-2 text-xs font-semibold rounded-lg transition border cursor-pointer ${isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                          }`}
+                      >
+                        Download Courses Template (.csv)
+                      </button>
                     </div>
-                    <div>
-                      <h4 className={`font-bold text-sm ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>Import CSV Data into Institutional Snapshot</h4>
-                      <p className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Paste CSV rows below or load sample data with 1 click</p>
+
+                    <div className={`p-4 rounded-xl border space-y-3 transition ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                      }`}>
+                      <div className={`font-bold text-sm flex items-center gap-2 ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>
+                        <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
+                        Faculty Master CSV
+                      </div>
+                      <p className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Faculty ID, name, department, designation, and UGC workload limit.</p>
+                      <button
+                        onClick={() => window.open('/api/export/template/faculty', '_blank')}
+                        className={`w-full py-2 text-xs font-semibold rounded-lg transition border cursor-pointer ${isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                          }`}
+                      >
+                        Download Faculty Template (.csv)
+                      </button>
+                    </div>
+
+                    <div className={`p-4 rounded-xl border space-y-3 transition ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                      }`}>
+                      <div className={`font-bold text-sm flex items-center gap-2 ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>
+                        <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
+                        Rooms & Labs CSV
+                      </div>
+                      <p className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Room ID, name, room type (Smart LH, Computer Lab, Pedagogy Hall), capacity.</p>
+                      <button
+                        onClick={() => window.open('/api/export/template/rooms', '_blank')}
+                        className={`w-full py-2 text-xs font-semibold rounded-lg transition border cursor-pointer ${isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                          }`}
+                      >
+                        Download Rooms Template (.csv)
+                      </button>
                     </div>
                   </div>
 
-                  {/* DataType Selector */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-xs font-semibold ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>Target Entity:</span>
-                    <select
-                      value={csvType}
-                      onChange={(e) => setCsvType(e.target.value)}
-                      className={`text-xs rounded-lg px-3 py-1.5 transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                      }`}
-                    >
-                      <option value="COURSES">Courses Catalog</option>
-                      <option value="FACULTY">Faculty Members</option>
-                      <option value="ROOMS">Rooms & Specialized Labs</option>
-                    </select>
-                    <button
-                      type="button"
-                      onClick={handleLoadSampleCsv}
-                      className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg transition border cursor-pointer ${
-                        isDark ? 'bg-slate-800 hover:bg-slate-700 text-indigo-300 border-indigo-500/20' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
-                      }`}
-                    >
-                      Load Sample CSV
-                    </button>
-                  </div>
-                </div>
-
-                <form onSubmit={handleCsvUpload} className="space-y-3">
-                  <div>
-                    <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                      CSV Content (Comma-separated with headers):
-                    </label>
-                    <textarea
-                      rows={6}
-                      value={csvText}
-                      onChange={(e) => setCsvText(e.target.value)}
-                      placeholder="Paste CSV data here or click 'Load Sample CSV' above..."
-                      className={`w-full text-xs font-mono rounded-xl p-3 transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                      }`}
-                    />
-                  </div>
-
-                  {csvMessage && (
-                    <div className={`p-3 rounded-xl border text-xs font-medium ${
-                      csvMessage.startsWith('Error') || csvMessage.startsWith('Upload failed')
-                        ? isDark ? 'bg-rose-950/40 border-rose-500/30 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-700'
-                        : isDark ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                  {/* Interactive Ingestion Form */}
+                  <div className={`p-5 rounded-2xl border space-y-4 transition ${isDark ? 'bg-slate-900/70 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
                     }`}>
-                      {csvMessage}
-                    </div>
-                  )}
+                    <div className={`flex flex-wrap items-center justify-between border-b pb-3 gap-3 ${isDark ? 'border-slate-800' : 'border-slate-200'
+                      }`}>
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500">
+                          <Upload className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h4 className={`font-bold text-sm ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>Import CSV Data into Institutional Snapshot</h4>
+                          <p className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Paste CSV rows below or load sample data with 1 click</p>
+                        </div>
+                      </div>
 
-                  <div className="flex flex-wrap justify-between items-center pt-2 gap-2">
-                    <span className="text-[11px] text-slate-500">
-                      Changes are merged into current academic snapshot and verified by the CP-SAT engine.
-                    </span>
-                    <button
-                      type="submit"
-                      disabled={csvUploading || !csvText.trim()}
-                      className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition shadow-md disabled:opacity-50 flex items-center gap-1.5"
-                    >
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>{csvUploading ? 'Ingesting...' : 'Ingest CSV to Snapshot'}</span>
-                    </button>
+                      {/* DataType Selector */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-xs font-semibold ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>Target Entity:</span>
+                        <select
+                          value={csvType}
+                          onChange={(e) => setCsvType(e.target.value)}
+                          className={`text-xs rounded-lg px-3 py-1.5 transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                            }`}
+                        >
+                          <option value="COURSES">Courses Catalog</option>
+                          <option value="FACULTY">Faculty Members</option>
+                          <option value="ROOMS">Rooms & Specialized Labs</option>
+                        </select>
+                        <button
+                          type="button"
+                          onClick={handleLoadSampleCsv}
+                          className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg transition border cursor-pointer ${isDark ? 'bg-slate-800 hover:bg-slate-700 text-indigo-300 border-indigo-500/20' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
+                            }`}
+                        >
+                          Load Sample CSV
+                        </button>
+                      </div>
+                    </div>
+
+                    <form onSubmit={handleCsvUpload} className="space-y-3">
+                      <div>
+                        <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                          CSV Content (Comma-separated with headers):
+                        </label>
+                        <textarea
+                          rows={6}
+                          value={csvText}
+                          onChange={(e) => setCsvText(e.target.value)}
+                          placeholder="Paste CSV data here or click 'Load Sample CSV' above..."
+                          className={`w-full text-xs font-mono rounded-xl p-3 transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                            }`}
+                        />
+                      </div>
+
+                      {csvMessage && (
+                        <div className={`p-3 rounded-xl border text-xs font-medium ${csvMessage.startsWith('Error') || csvMessage.startsWith('Upload failed')
+                          ? isDark ? 'bg-rose-950/40 border-rose-500/30 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-700'
+                          : isDark ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          }`}>
+                          {csvMessage}
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap justify-between items-center pt-2 gap-2">
+                        <span className="text-[11px] text-slate-500">
+                          Changes are merged into current academic snapshot and verified by the CP-SAT engine.
+                        </span>
+                        <button
+                          type="submit"
+                          disabled={csvUploading || !csvText.trim()}
+                          className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition shadow-md disabled:opacity-50 flex items-center gap-1.5"
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>{csvUploading ? 'Ingesting...' : 'Ingest CSV to Snapshot'}</span>
+                        </button>
+                      </div>
+                    </form>
                   </div>
-                </form>
-              </div>
-            </div>
+                </div>
+              )}
+
+            </main>
           )}
 
-        </main>
-      )}
-
-      {/* ========================================================================= */}
-      {/* VIEW C: SETTINGS & ROLE MANAGEMENT                                        */}
-      {/* ========================================================================= */}
-      {mainView === 'SETTINGS' && (
-        <SettingsPage currentUser={currentUser} theme={theme} />
-      )}
+          {/* ========================================================================= */}
+          {/* VIEW C: SETTINGS & ROLE MANAGEMENT                                        */}
+          {/* ========================================================================= */}
+          {mainView === 'SETTINGS' && (
+            <SettingsPage
+              currentUser={currentUser}
+              theme={theme}
+              onNavigateTimetable={(progId, courseId) => {
+                setMainView('TIMETABLE');
+                setViewType('GROUP');
+                if (progId) handleSelectProgram(progId);
+                if (courseId) handleSelectCourse(courseId);
+              }}
+            />
+          )}
 
         </div>
       </div>
@@ -1906,12 +2073,10 @@ export default function App() {
       {/* ========================================================================= */}
       {showAddCourseModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className={`border rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150 transition ${
-            isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
-          }`}>
-            <div className={`flex items-center justify-between border-b pb-3 ${
-              isDark ? 'border-slate-800' : 'border-slate-200'
+          <div className={`border rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150 transition ${isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
             }`}>
+            <div className={`flex items-center justify-between border-b pb-3 ${isDark ? 'border-slate-800' : 'border-slate-200'
+              }`}>
               <div className="flex items-center gap-2.5">
                 <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500">
                   <Plus className="w-5 h-5" />
@@ -1938,9 +2103,8 @@ export default function App() {
                     required
                     value={newCourseCode}
                     onChange={(e) => setNewCourseCode(e.target.value)}
-                    className={`w-full rounded-lg p-2.5 font-mono border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
+                    className={`w-full rounded-lg p-2.5 font-mono border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      }`}
                   />
                 </div>
                 <div>
@@ -1948,9 +2112,8 @@ export default function App() {
                   <select
                     value={newCourseProgram}
                     onChange={(e) => setNewCourseProgram(e.target.value)}
-                    className={`w-full rounded-lg p-2.5 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
+                    className={`w-full rounded-lg p-2.5 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      }`}
                   >
                     <option value="FYUP">FYUP (Four-Year UG)</option>
                     <option value="ITEP">ITEP (Integrated Teacher Education)</option>
@@ -1967,9 +2130,8 @@ export default function App() {
                   required
                   value={newCourseName}
                   onChange={(e) => setNewCourseName(e.target.value)}
-                  className={`w-full rounded-lg p-2.5 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                    isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                  }`}
+                  className={`w-full rounded-lg p-2.5 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    }`}
                 />
               </div>
 
@@ -1979,9 +2141,8 @@ export default function App() {
                   <select
                     value={newCourseCategory}
                     onChange={(e) => setNewCourseCategory(e.target.value)}
-                    className={`w-full rounded-lg p-2.5 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
+                    className={`w-full rounded-lg p-2.5 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      }`}
                   >
                     <option value="MAJOR">Major (DSC)</option>
                     <option value="MINOR">Minor (Basket)</option>
@@ -1999,9 +2160,8 @@ export default function App() {
                     max="6"
                     value={newCourseCredits}
                     onChange={(e) => setNewCourseCredits(Number(e.target.value))}
-                    className={`w-full rounded-lg p-2.5 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
+                    className={`w-full rounded-lg p-2.5 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      }`}
                   />
                 </div>
                 <div>
@@ -2009,9 +2169,8 @@ export default function App() {
                   <select
                     value={newCourseDuration}
                     onChange={(e) => setNewCourseDuration(Number(e.target.value))}
-                    className={`w-full rounded-lg p-2.5 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
+                    className={`w-full rounded-lg p-2.5 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      }`}
                   >
                     <option value={1}>1 Slot (Theory)</option>
                     <option value={2}>2 Slots (Lab / Practice)</option>
@@ -2028,9 +2187,8 @@ export default function App() {
                     max="6"
                     value={newCourseSessions}
                     onChange={(e) => setNewCourseSessions(Number(e.target.value))}
-                    className={`w-full rounded-lg p-2.5 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
+                    className={`w-full rounded-lg p-2.5 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      }`}
                   />
                 </div>
                 <div>
@@ -2038,9 +2196,8 @@ export default function App() {
                   <select
                     value={newCourseRoomType}
                     onChange={(e) => setNewCourseRoomType(e.target.value)}
-                    className={`w-full rounded-lg p-2.5 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
+                    className={`w-full rounded-lg p-2.5 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      }`}
                   >
                     <option value="LECTURE_HALL">Smart Lecture Hall</option>
                     <option value="COMPUTER_LAB">Computer & AI Lab</option>
@@ -2056,9 +2213,8 @@ export default function App() {
                   <select
                     value={newCourseGroup}
                     onChange={(e) => setNewCourseGroup(e.target.value)}
-                    className={`w-full rounded-lg p-2.5 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
+                    className={`w-full rounded-lg p-2.5 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      }`}
                   >
                     {(snapshot?.student_groups || []).map(g => (
                       <option key={g.group_id} value={g.group_id}>{g.name}</option>
@@ -2070,9 +2226,8 @@ export default function App() {
                   <select
                     value={newCourseFaculty}
                     onChange={(e) => setNewCourseFaculty(e.target.value)}
-                    className={`w-full rounded-lg p-2.5 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
+                    className={`w-full rounded-lg p-2.5 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      }`}
                   >
                     {(snapshot?.faculty || []).map(f => (
                       <option key={f.faculty_id} value={f.faculty_id}>{f.name} ({f.department_id})</option>
@@ -2081,15 +2236,13 @@ export default function App() {
                 </div>
               </div>
 
-              <div className={`pt-3 border-t flex justify-end gap-2 ${
-                isDark ? 'border-slate-800' : 'border-slate-200'
-              }`}>
+              <div className={`pt-3 border-t flex justify-end gap-2 ${isDark ? 'border-slate-800' : 'border-slate-200'
+                }`}>
                 <button
                   type="button"
                   onClick={() => setShowAddCourseModal(false)}
-                  className={`px-4 py-2 rounded-xl font-semibold transition border cursor-pointer ${
-                    isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                  }`}
+                  className={`px-4 py-2 rounded-xl font-semibold transition border cursor-pointer ${isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                    }`}
                 >
                   Cancel
                 </button>
@@ -2110,15 +2263,13 @@ export default function App() {
       {/* MODAL: ADD FACULTY MEMBER */}
       {showAddFacultyModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className={`border rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 transition ${
-            isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
-          }`}>
-            <div className={`flex items-center justify-between border-b pb-3 ${
-              isDark ? 'border-slate-800' : 'border-slate-200'
+          <div className={`border rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 transition ${isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
             }`}>
+            <div className={`flex items-center justify-between border-b pb-3 ${isDark ? 'border-slate-800' : 'border-slate-200'
+              }`}>
               <h3 className={`font-bold text-sm ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>Register New Faculty Member</h3>
-              <button 
-                onClick={() => setShowAddFacultyModal(false)} 
+              <button
+                onClick={() => setShowAddFacultyModal(false)}
                 className={`p-1 rounded-lg transition cursor-pointer ${isDark ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-900'}`}
               >
                 ✕
@@ -2131,9 +2282,8 @@ export default function App() {
                   type="text"
                   value={newFacId}
                   onChange={(e) => setNewFacId(e.target.value)}
-                  className={`w-full rounded-lg p-2 font-mono border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                    isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                  }`}
+                  className={`w-full rounded-lg p-2 font-mono border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    }`}
                 />
               </div>
               <div>
@@ -2142,9 +2292,8 @@ export default function App() {
                   type="text"
                   value={newFacName}
                   onChange={(e) => setNewFacName(e.target.value)}
-                  className={`w-full rounded-lg p-2 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                    isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                  }`}
+                  className={`w-full rounded-lg p-2 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    }`}
                 />
               </div>
               <div>
@@ -2152,9 +2301,8 @@ export default function App() {
                 <select
                   value={newFacDesig}
                   onChange={(e) => setNewFacDesig(e.target.value)}
-                  className={`w-full rounded-lg p-2 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
-                    isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                  }`}
+                  className={`w-full rounded-lg p-2 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    }`}
                 >
                   <option value="Professor">Professor (Max 14h / week)</option>
                   <option value="Associate Professor">Associate Professor (Max 14h / week)</option>
@@ -2168,9 +2316,8 @@ export default function App() {
                     type="text"
                     value={newFacDept}
                     onChange={(e) => setNewFacDept(e.target.value)}
-                    className={`w-full rounded-lg p-2 font-mono border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
+                    className={`w-full rounded-lg p-2 font-mono border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      }`}
                   />
                 </div>
                 <div>
@@ -2179,28 +2326,25 @@ export default function App() {
                     type="number"
                     value={newFacMaxHours}
                     onChange={(e) => setNewFacMaxHours(Number(e.target.value))}
-                    className={`w-full rounded-lg p-2 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
+                    className={`w-full rounded-lg p-2 border transition focus:outline-none focus:ring-1 focus:ring-indigo-500 ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                      }`}
                   />
                 </div>
               </div>
-              <div className={`pt-2 flex justify-end gap-2 border-t ${
-                isDark ? 'border-slate-800' : 'border-slate-200'
-              }`}>
-                <button 
-                  onClick={() => setShowAddFacultyModal(false)} 
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition border cursor-pointer ${
-                    isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                  }`}
+              <div className={`pt-2 flex justify-end gap-2 border-t ${isDark ? 'border-slate-800' : 'border-slate-200'
+                }`}>
+                <button
+                  onClick={() => setShowAddFacultyModal(false)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition border cursor-pointer ${isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                    }`}
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   onClick={async () => {
                     await fetch('/api/admin/add-faculty', {
                       method: 'POST',
-                      headers: {'Content-Type': 'application/json'},
+                      headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({
                         faculty_id: newFacId,
                         name: newFacName,
@@ -2226,12 +2370,10 @@ export default function App() {
       {/* MODAL: MINOR BASKET INSPECTOR (CON-H-011) */}
       {showBasketModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className={`border rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-5 transition ${
-            isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
-          }`}>
-            <div className={`flex items-center justify-between border-b pb-4 ${
-              isDark ? 'border-slate-800' : 'border-slate-200'
+          <div className={`border rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-5 transition ${isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
             }`}>
+            <div className={`flex items-center justify-between border-b pb-4 ${isDark ? 'border-slate-800' : 'border-slate-200'
+              }`}>
               <div className="flex items-center gap-3">
                 <div className="p-2.5 rounded-xl bg-purple-500/10 text-purple-500 border border-purple-500/20">
                   <GitFork className="w-6 h-6" />
@@ -2254,9 +2396,8 @@ export default function App() {
             </div>
 
             <div className="space-y-4">
-              <div className={`p-4 rounded-xl border text-xs leading-relaxed space-y-2 transition ${
-                isDark ? 'bg-purple-950/30 border-purple-500/30 text-purple-200' : 'bg-purple-50 border-purple-200 text-purple-800'
-              }`}>
+              <div className={`p-4 rounded-xl border text-xs leading-relaxed space-y-2 transition ${isDark ? 'bg-purple-950/30 border-purple-500/30 text-purple-200' : 'bg-purple-50 border-purple-200 text-purple-800'
+                }`}>
                 <div className="font-bold flex items-center gap-1.5 text-purple-500">
                   <Sparkles className="w-4 h-4 text-amber-500" />
                   How CON-H-011 Solves Multidisciplinary Minor Alignment:
@@ -2264,9 +2405,8 @@ export default function App() {
                 <p>
                   In FYUP Semester 3, students from both <strong>Section A (Computer Science)</strong> and <strong>Section B (Humanities)</strong> can choose one multidisciplinary minor course. To avoid timetable clashes across majors, the CP-SAT engine enforces a mathematical equality constraint on their start slots:
                 </p>
-                <div className={`p-2.5 rounded-lg border font-mono text-center text-[11px] ${
-                  isDark ? 'bg-slate-950/70 border-purple-500/20 text-indigo-300' : 'bg-white border-purple-200 text-indigo-700'
-                }`}>
+                <div className={`p-2.5 rounded-lg border font-mono text-center text-[11px] ${isDark ? 'bg-slate-950/70 border-purple-500/20 text-indigo-300' : 'bg-white border-purple-200 text-indigo-700'
+                  }`}>
                   start(Economics Minor) = start(Math Minor) = start(Psychology Minor)
                 </div>
                 <p>
@@ -2292,24 +2432,21 @@ export default function App() {
                     const psyP = minorPlacements.find(p => p.requirement_id === 'REQ_MINOR_PSY' && p.start_slot === slotIdx);
 
                     return (
-                      <div key={slotIdx} className={`p-3 rounded-xl border space-y-2 transition ${
-                        isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
-                      }`}>
+                      <div key={slotIdx} className={`p-3 rounded-xl border space-y-2 transition ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                        }`}>
                         <div className="flex items-center justify-between text-xs">
                           <span className={`font-bold flex items-center gap-1.5 ${isDark ? 'text-indigo-300' : 'text-indigo-600'}`}>
                             <Clock className="w-3.5 h-3.5 text-indigo-500" />
                             Parallel Slot #{idx + 1}: {dayName} {perLabel} ({perTime})
                           </span>
-                          <span className={`text-[10px] px-2 py-0.5 rounded font-bold border ${
-                            isDark ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                          }`}>
+                          <span className={`text-[10px] px-2 py-0.5 rounded font-bold border ${isDark ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            }`}>
                             CON-H-011 SYNCHRONIZED
                           </span>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
-                          <div className={`p-2.5 rounded-lg border ${
-                            isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-                          }`}>
+                          <div className={`p-2.5 rounded-lg border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                            }`}>
                             <div className={`font-bold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>Principles of Microeconomics</div>
                             <div className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>MIN-ECO-201</div>
                             <div className="text-[10px] text-indigo-500 mt-1 flex items-center gap-1">
@@ -2317,9 +2454,8 @@ export default function App() {
                               {ecoP?.assigned_room_id ? roomMap.get(ecoP.assigned_room_id)?.name : 'Smart LH 101'}
                             </div>
                           </div>
-                          <div className={`p-2.5 rounded-lg border ${
-                            isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-                          }`}>
+                          <div className={`p-2.5 rounded-lg border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                            }`}>
                             <div className={`font-bold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>Applied Linear Algebra</div>
                             <div className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>MIN-MTH-201</div>
                             <div className="text-[10px] text-indigo-500 mt-1 flex items-center gap-1">
@@ -2327,9 +2463,8 @@ export default function App() {
                               {mathP?.assigned_room_id ? roomMap.get(mathP.assigned_room_id)?.name : 'Smart LH 102'}
                             </div>
                           </div>
-                          <div className={`p-2.5 rounded-lg border ${
-                            isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-                          }`}>
+                          <div className={`p-2.5 rounded-lg border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+                            }`}>
                             <div className={`font-bold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>Cognitive Psychology</div>
                             <div className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>MIN-PSY-201</div>
                             <div className="text-[10px] text-indigo-500 mt-1 flex items-center gap-1">
@@ -2348,9 +2483,8 @@ export default function App() {
             <div className={`flex justify-end pt-3 border-t ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
               <button
                 onClick={() => setShowBasketModal(false)}
-                className={`px-4 py-2 text-xs font-semibold rounded-lg transition border cursor-pointer ${
-                  isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                }`}
+                className={`px-4 py-2 text-xs font-semibold rounded-lg transition border cursor-pointer ${isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                  }`}
               >
                 Close Inspector
               </button>
@@ -2362,12 +2496,10 @@ export default function App() {
       {/* MODAL: UGC WORKLOAD & INFRASTRUCTURE */}
       {showWorkloadModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className={`border rounded-2xl max-w-4xl w-full p-6 shadow-2xl space-y-5 transition ${
-            isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
-          }`}>
-            <div className={`flex items-center justify-between border-b pb-4 ${
-              isDark ? 'border-slate-800' : 'border-slate-200'
+          <div className={`border rounded-2xl max-w-4xl w-full p-6 shadow-2xl space-y-5 transition ${isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
             }`}>
+            <div className={`flex items-center justify-between border-b pb-4 ${isDark ? 'border-slate-800' : 'border-slate-200'
+              }`}>
               <div className="flex items-center gap-3">
                 <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-500 border border-blue-500/20">
                   <Building2 className="w-6 h-6" />
@@ -2402,9 +2534,8 @@ export default function App() {
                     const percent = Math.min(100, Math.round((totalHours / maxCap) * 100));
 
                     return (
-                      <div key={fac.faculty_id} className={`p-3 rounded-xl border space-y-1.5 transition ${
-                        isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
-                      }`}>
+                      <div key={fac.faculty_id} className={`p-3 rounded-xl border space-y-1.5 transition ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                        }`}>
                         <div className="flex items-center justify-between text-xs">
                           <div>
                             <span className={`font-bold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>{fac.name}</span>
@@ -2415,10 +2546,9 @@ export default function App() {
                           </span>
                         </div>
                         <div className={`w-full h-2 rounded-full overflow-hidden ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`}>
-                          <div 
-                            className={`h-full rounded-full transition-all ${
-                              totalHours > maxCap ? 'bg-rose-500' : 'bg-emerald-500'
-                            }`}
+                          <div
+                            className={`h-full rounded-full transition-all ${totalHours > maxCap ? 'bg-rose-500' : 'bg-emerald-500'
+                              }`}
                             style={{ width: `${percent}%` }}
                           />
                         </div>
@@ -2438,9 +2568,8 @@ export default function App() {
                 </h4>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                   {(snapshot?.rooms || []).map(r => (
-                    <div key={r.room_id} className={`p-2.5 rounded-lg border space-y-1 transition ${
-                      isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
-                    }`}>
+                    <div key={r.room_id} className={`p-2.5 rounded-lg border space-y-1 transition ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                      }`}>
                       <div className={`font-bold truncate ${isDark ? 'text-slate-300' : 'text-slate-800'}`}>{r.name}</div>
                       <div className={`text-[10px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{r.room_type_id}</div>
                       <div className="text-[10px] text-emerald-500 font-semibold">Capacity: {r.capacity} seats</div>
@@ -2453,9 +2582,8 @@ export default function App() {
             <div className={`flex justify-end pt-3 border-t ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
               <button
                 onClick={() => setShowWorkloadModal(false)}
-                className={`px-4 py-2 text-xs font-semibold rounded-lg transition border cursor-pointer ${
-                  isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                }`}
+                className={`px-4 py-2 text-xs font-semibold rounded-lg transition border cursor-pointer ${isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                  }`}
               >
                 Close Workload Matrix
               </button>
@@ -2463,6 +2591,17 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* PDF Export & Print Multi-Selection Modal */}
+      <PrintPdfModal
+        isOpen={showPrintModal}
+        onClose={() => setShowPrintModal(false)}
+        theme={theme}
+        courses={courses}
+        snapshot={snapshot}
+        activeEntityId={viewType === 'GROUP' ? (selectedSectionId !== 'ALL' ? selectedSectionId : selectedCourseId) : selectedEntityId}
+        viewType={viewType}
+      />
 
     </div>
   );

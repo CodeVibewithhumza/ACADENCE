@@ -5,7 +5,7 @@ import {
   Sliders, Server, CheckCircle2, Lock, X,
   GraduationCap, BookOpen, Sparkles, Layers,
   DoorOpen, Users2, Clock,
-  Edit3, ListFilter, CheckCircle
+  Edit3, ListFilter, CheckCircle, Calendar
 } from 'lucide-react';
 import type { User, UserRole, SystemSettings, AuditLogEntry } from '../types/auth';
 
@@ -70,9 +70,10 @@ interface RoomAuditEntry {
 interface SettingsPageProps {
   currentUser: User;
   theme?: 'dark' | 'light';
+  onNavigateTimetable?: (programId?: string, courseId?: string) => void;
 }
 
-export function SettingsPage({ currentUser, theme = 'dark' }: SettingsPageProps) {
+export function SettingsPage({ currentUser, theme = 'dark', onNavigateTimetable }: SettingsPageProps) {
   const isDark = theme !== 'light';
   const [activeTab, setActiveTab] = useState<'COURSES' | 'USERS' | 'ROLES' | 'INSTITUTION' | 'SUPABASE' | 'AUDIT'>('COURSES');
 
@@ -127,8 +128,8 @@ export function SettingsPage({ currentUser, theme = 'dark' }: SettingsPageProps)
     working_days_per_week: 5,
     periods_per_day: 7,
     teaching_practice_weeks: 4,
-    supabase_url: '',
-    supabase_anon_key: '',
+    supabase_url: 'https://gmukjwmwerbjwxbujsuy.supabase.co',
+    supabase_anon_key: 'sb_publishable_GTEjmmgPM683f21WSOGkFw_GR7iDULn',
     auto_validate: true,
     audit_logging: true,
   });
@@ -920,9 +921,25 @@ export function SettingsPage({ currentUser, theme = 'dark' }: SettingsPageProps)
                       <div className={`pt-3 border-t flex items-center justify-between text-[11px] ${
                         isDark ? 'border-slate-800' : 'border-slate-200'
                       }`}>
-                        <div className="flex items-center gap-1 text-[10px] text-slate-400">
-                          <Clock className="w-3 h-3 text-indigo-400" />
-                          <span>{cohort.active_placements_count || 0} active placements</span>
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                            <Clock className="w-3 h-3 text-indigo-400" />
+                            <span>{cohort.active_placements_count || 0} active placements</span>
+                          </div>
+                          {onNavigateTimetable && (
+                            <button
+                              onClick={() => onNavigateTimetable(cohort.program_id, cohort.course_id)}
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition flex items-center gap-1 cursor-pointer ${
+                                isDark
+                                  ? 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                                  : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
+                              }`}
+                              title={`View Timetable for ${cohort.course_name}`}
+                            >
+                              <Calendar className="w-3 h-3 text-indigo-400" />
+                              <span>View Timetable &rarr;</span>
+                            </button>
+                          )}
                         </div>
 
                         {!isRestricted && (

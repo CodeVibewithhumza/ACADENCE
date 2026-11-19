@@ -2,7 +2,7 @@
 Exposes optimization, multi-profile alternatives, live delta-validation, and timetable grids.
 """
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -22,6 +22,7 @@ from acadence.domain.curriculum import (
     CurriculumSubject,
     CourseCohort,
     compute_rooms_for_student_count,
+    allocate_exclusive_rooms_for_all_cohorts,
     get_default_programs,
     get_default_curriculum_subjects,
     get_template_curriculum_subjects,
@@ -67,8 +68,90 @@ state.snapshot = build_curriculum_institution_snapshot(
     state.programs, state.course_cohorts, state.curriculum_subjects
 )
 
-# Pre-seed initial user accounts and system configuration
-state.users = [
+# =========================================================================
+# SUPABASE USER SYNCHRONIZATION HELPERS
+# =========================================================================
+
+def supabase_get_users():
+    """Fetches users from Supabase cloud database via PostgREST."""
+    import urllib.request, json
+    supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL", os.getenv("SUPABASE_URL", "https://gmukjwmwerbjwxbujsuy.supabase.co"))
+    supabase_key = os.getenv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", os.getenv("SUPABASE_KEY", "sb_publishable_GTEjmmgPM683f21WSOGkFw_GR7iDULn"))
+    
+    url = f"{supabase_url}/rest/v1/institution_settings?id=like.USER_*"
+    req = urllib.request.Request(url, headers={
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Accept": "application/json"
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+            users = []
+            for row in data:
+                try:
+                    u = json.loads(row["nep_framework"])
+                    if u.get("role") in ["ADMIN", "COORDINATOR", "FACULTY"]:
+                        users.append(u)
+                except Exception:
+                    pass
+            return users
+    except Exception as e:
+        print(f"[Supabase Sync] Warning: Could not fetch users from Supabase: {e}")
+        return []
+
+def supabase_upsert_user(user: dict):
+    """Upserts user into Supabase cloud table."""
+    import urllib.request, json
+    supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL", os.getenv("SUPABASE_URL", "https://gmukjwmwerbjwxbujsuy.supabase.co"))
+    supabase_key = os.getenv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", os.getenv("SUPABASE_KEY", "sb_publishable_GTEjmmgPM683f21WSOGkFw_GR7iDULn"))
+    
+    uid = user["user_id"]
+    url = f"{supabase_url}/rest/v1/institution_settings"
+    payload = {
+        "id": f"USER_{uid}",
+        "institution_name": user["name"],
+        "academic_session": user["email"],
+        "nep_framework": json.dumps(user),
+        "working_days_per_week": 5,
+        "periods_per_day": 7,
+        "teaching_practice_weeks": 4,
+        "auto_validate": True,
+        "audit_logging": True
+    }
+    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates,return=representation"
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return True
+    except Exception as e:
+        print(f"[Supabase Sync] Error upserting user {uid}: {e}")
+        return False
+
+def supabase_delete_user(uid: str):
+    """Deletes user from Supabase."""
+    import urllib.request
+    supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL", os.getenv("SUPABASE_URL", "https://gmukjwmwerbjwxbujsuy.supabase.co"))
+    supabase_key = os.getenv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", os.getenv("SUPABASE_KEY", "sb_publishable_GTEjmmgPM683f21WSOGkFw_GR7iDULn"))
+    
+    url = f"{supabase_url}/rest/v1/institution_settings?id=eq.USER_{uid}"
+    req = urllib.request.Request(url, method="DELETE", headers={
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}"
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return True
+    except Exception as e:
+        print(f"[Supabase Sync] Error deleting user {uid}: {e}")
+        return False
+
+# Pre-seed root Super Administrator account (hello@123.com / 123)
+DEFAULT_INSTITUTIONAL_USERS = [
     {
         "user_id": "usr_001",
         "email": "hello@123.com",
@@ -79,45 +162,42 @@ state.users = [
         "status": "ACTIVE",
         "created_at": "2026-11-01",
     },
-    {
-        "user_id": "usr_002",
-        "email": "coordinator@acadence.edu",
-        "password": "123",
-        "name": "Prof. Tariq Bhat",
-        "role": "COORDINATOR",
-        "department": "Academic Timetable Committee",
-        "status": "ACTIVE",
-        "created_at": "2026-11-02",
-    },
-    {
-        "user_id": "usr_003",
-        "email": "faculty.sharma@acadence.edu",
-        "password": "123",
-        "name": "Dr. Priya Sharma",
-        "role": "FACULTY",
-        "department": "Department of Mathematical Sciences",
-        "status": "ACTIVE",
-        "created_at": "2026-11-03",
-    },
-    {
-        "user_id": "usr_004",
-        "email": "student.fyup@acadence.edu",
-        "password": "123",
-        "name": "Aarav Mehta",
-        "role": "STUDENT",
-        "department": "School of Computer Science & Engineering",
-        "status": "ACTIVE",
-        "created_at": "2026-11-04",
-    },
 ]
+
+# Sync with Supabase: Only Super Admin exists initially; Admin creates and assigns roles for all other accounts
+try:
+    _sb_users = supabase_get_users()
+    if _sb_users and len(_sb_users) >= 1:
+        state.users = _sb_users
+    else:
+        state.users = list(DEFAULT_INSTITUTIONAL_USERS)
+        for u in state.users:
+            supabase_upsert_user(u)
+except Exception:
+    state.users = list(DEFAULT_INSTITUTIONAL_USERS)
 
 state.settings = {
     "institution_name": "Metropolitan University",
     "academic_session": "Autumn Semester 2026-27",
     "nep_framework": "Semester & Credit-Based Curriculum",
     "working_days_per_week": 5,
-    "periods_per_day": 7,
+    "periods_per_day": 8,
     "teaching_practice_weeks": 4,
+    "campus_start_time": "08:30",
+    "campus_end_time": "15:40",
+    "default_period_duration_minutes": 50,
+    "break_duration_minutes": 30,
+    "lunch_break_after": 3,
+    "periods_schedule": [
+        {"p": 0, "label": "P1", "start_time": "08:30", "end_time": "09:20", "is_break": False},
+        {"p": 1, "label": "P2", "start_time": "09:20", "end_time": "10:10", "is_break": False},
+        {"p": 2, "label": "P3", "start_time": "10:10", "end_time": "11:00", "is_break": False},
+        {"p": 3, "label": "P4", "start_time": "11:30", "end_time": "12:20", "is_break": False},
+        {"p": 4, "label": "P5", "start_time": "12:20", "end_time": "13:10", "is_break": False},
+        {"p": 5, "label": "P6", "start_time": "13:10", "end_time": "14:00", "is_break": False},
+        {"p": 6, "label": "P7", "start_time": "14:00", "end_time": "14:50", "is_break": False},
+        {"p": 7, "label": "P8", "start_time": "14:50", "end_time": "15:40", "is_break": False},
+    ],
     "supabase_url": os.getenv("NEXT_PUBLIC_SUPABASE_URL", os.getenv("SUPABASE_URL", "https://gmukjwmwerbjwxbujsuy.supabase.co")),
     "supabase_anon_key": os.getenv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", os.getenv("SUPABASE_KEY", "sb_publishable_GTEjmmgPM683f21WSOGkFw_GR7iDULn")),
     "auto_validate": True,
@@ -265,6 +345,76 @@ def get_current_timetable():
                 for v in (state.current_validation.violations if state.current_validation else [])
             ],
         },
+    }
+
+
+@app.post("/api/reset-fresh")
+def reset_fresh():
+    """Completely clears all current state and caches, then rebuilds and solves a 100% fresh, optimal timetable with exclusive rooms."""
+    state.current_placements = []
+    state.alternatives = {}
+    state.programs = get_default_programs()
+    state.curriculum_subjects = get_default_curriculum_subjects()
+    state.course_cohorts = get_default_course_cohorts()
+    state.snapshot = build_curriculum_institution_snapshot(
+        state.programs, state.course_cohorts, state.curriculum_subjects
+    )
+
+    # Solve fresh optimal timetable
+    generate_timetable(GenerateRequest(profile_name="BALANCED"))
+
+    # Re-calculate exclusive course allocations
+    alloc_data = allocate_exclusive_rooms_for_all_cohorts(state.course_cohorts, state.snapshot.rooms)
+    courses_list = []
+    for item in alloc_data["allocations"]:
+        c = item["cohort"]
+        calc = item["calculation"]
+        c.allocated_room_ids = calc["allocated_room_ids"]
+        c.allocated_room_names = calc["allocated_room_names"]
+        subs = [
+            s for s in state.curriculum_subjects
+            if s.program_id == c.program_id and s.year == c.year and s.semester == c.semester
+        ]
+        courses_list.append({
+            "course_id": c.course_id,
+            "course_name": c.course_name,
+            "program_id": c.program_id,
+            "year": c.year,
+            "semester": c.semester,
+            "department": c.department,
+            "student_count": c.student_count,
+            "preferred_room_type": c.preferred_room_type,
+            "rooms_required": calc.get("rooms_required", c.rooms_required),
+            "max_capacity_per_room": calc.get("max_capacity_per_room", 75),
+            "allocated_room_ids": c.allocated_room_ids,
+            "allocated_room_names": c.allocated_room_names,
+            "section_ids": [f"GRP_{c.course_id}_SEC{chr(65+i)}" for i in range(c.rooms_required)],
+            "sections": calc["sections"],
+            "has_deficit": calc["has_deficit"],
+            "deficit_count": calc["deficit_count"],
+            "error_message": calc["error_message"],
+            "is_exclusive_locked": True,
+            "description": c.description,
+            "subjects_count": len(subs),
+            "subjects": [s.model_dump() for s in subs],
+            "active_placements_count": len(state.current_placements),
+            "collision_free": True,
+        })
+
+    return {
+        "success": True,
+        "message": "Institution state, exclusive room allocations, and master timetable cleared and solved fresh!",
+        "snapshot": state.snapshot,
+        "placements": state.current_placements,
+        "metrics": state.current_metrics,
+        "validation": {
+            "status": state.current_validation.status.value if state.current_validation else "OPTIMAL",
+            "is_valid": state.current_validation.is_valid if state.current_validation else True,
+            "violations": [v.model_dump() for v in (state.current_validation.violations if state.current_validation else [])],
+        },
+        "courses": courses_list,
+        "has_campus_deficit": alloc_data["has_campus_deficit"],
+        "campus_deficits": alloc_data["campus_deficits"],
     }
 
 
@@ -1020,12 +1170,9 @@ class AddCurriculumSubjectRequest(BaseModel):
 
 @app.get("/api/curriculum/programs")
 def get_all_curriculum_programs():
-    """Returns ONLY the academic degree programs corresponding to registered courses in Settings."""
-    active_program_ids = {c.program_id for c in state.course_cohorts}
+    """Returns all registered academic degree programs."""
     result = []
     for p in state.programs:
-        if p.program_id not in active_program_ids:
-            continue
         prog_subs = [s for s in state.curriculum_subjects if s.program_id == p.program_id]
         cohort_years = {c.year for c in state.course_cohorts if c.program_id == p.program_id}
         year_breakdown = {}
@@ -1042,9 +1189,9 @@ def get_all_curriculum_programs():
             "name": p.name,
             "short_code": p.short_code,
             "department": p.department,
-            "duration_years": max(cohort_years) if cohort_years else p.duration_years,
+            "duration_years": p.duration_years,
             "semesters_per_year": p.semesters_per_year,
-            "total_semesters": (max(cohort_years) if cohort_years else p.duration_years) * p.semesters_per_year,
+            "total_semesters": p.duration_years * p.semesters_per_year,
             "description": p.description,
             "total_subjects": len(prog_subs),
             "total_credits": sum(s.credits for s in prog_subs),
@@ -1139,7 +1286,8 @@ def add_academic_program(req: AddProgramRequest):
         sem = (y - 1) * new_prog.semesters_per_year + 1
         cid = f"{new_prog.program_id}_Y{y}"
         if not any(c.course_id == cid for c in state.course_cohorts):
-            calc = compute_rooms_for_student_count(60, "LECTURE_HALL", state.snapshot.rooms)
+            locked_rooms = {r_id for c in state.course_cohorts for r_id in c.allocated_room_ids}
+            calc = compute_rooms_for_student_count(60, "LECTURE_HALL", state.snapshot.rooms, locked_room_ids=locked_rooms)
             state.course_cohorts.append(CourseCohort(
                 course_id=cid,
                 course_name=f"{new_prog.short_code} Year {y}",
@@ -1310,11 +1458,17 @@ class AddSubjectToCourseRequest(BaseModel):
 @app.get("/api/courses")
 def get_courses():
     """Returns course cohorts (e.g. B.Tech 1st Year, 2nd Year, etc.) with enrollment,
-    allocated collision-free rooms, section breakdowns, and enrolled subjects."""
+    allocated collision-free exclusively locked rooms, section breakdowns, and enrolled subjects."""
+    global_alloc = allocate_exclusive_rooms_for_all_cohorts(state.course_cohorts, state.snapshot.rooms)
     results = []
     
-    for c in state.course_cohorts:
-        calc = compute_rooms_for_student_count(c.student_count, c.preferred_room_type, state.snapshot.rooms)
+    for item in global_alloc["allocations"]:
+        c = item["cohort"]
+        calc = item["calculation"]
+        
+        # Keep cohort's allocated_room_ids updated with exclusively locked rooms
+        c.allocated_room_ids = calc["allocated_room_ids"]
+        c.allocated_room_names = calc["allocated_room_names"]
         
         # Link subjects that belong to this course cohort
         matched_subjects = [
@@ -1339,8 +1493,8 @@ def get_courses():
             "preferred_room_type": c.preferred_room_type,
             "rooms_required": calc["rooms_required"],
             "max_capacity_per_room": calc["max_capacity_per_room"],
-            "allocated_room_ids": c.allocated_room_ids if c.allocated_room_ids else calc["allocated_room_ids"],
-            "allocated_room_names": c.allocated_room_names if c.allocated_room_names else calc["allocated_room_names"],
+            "allocated_room_ids": calc["allocated_room_ids"],
+            "allocated_room_names": calc["allocated_room_names"],
             "section_ids": c.section_ids,
             "sections": [
                 {
@@ -1351,16 +1505,25 @@ def get_courses():
                 }
                 for i, sec in enumerate(calc["sections"])
             ],
+            "has_deficit": calc["has_deficit"],
+            "deficit_count": calc["deficit_count"],
+            "error_message": calc["error_message"],
+            "is_exclusive_locked": True,
             "description": c.description,
             "subjects_count": len(matched_subjects),
             "subjects": [s.model_dump() for s in matched_subjects],
             "active_placements_count": len(active_placements),
-            "collision_free": True,
+            "collision_free": not calc["has_deficit"],
         })
         
     return {
         "success": True,
         "courses": results,
+        "has_campus_deficit": global_alloc["has_campus_deficit"],
+        "campus_deficits": global_alloc["campus_deficits"],
+        "total_rooms_required": global_alloc["total_rooms_required"],
+        "total_rooms_available": global_alloc["total_rooms_available"],
+        "total_lecture_halls_available": global_alloc["total_lecture_halls_available"],
         "rooms_catalog": [
             {
                 "room_id": r.room_id,
@@ -1385,7 +1548,8 @@ def create_course(req: CreateCourseCohortRequest):
     if any(c.course_id == cid for c in state.course_cohorts):
         raise HTTPException(status_code=400, detail=f"Course ID '{cid}' already exists.")
         
-    calc = compute_rooms_for_student_count(req.student_count, req.preferred_room_type, state.snapshot.rooms)
+    locked_rooms = {r_id for c in state.course_cohorts for r_id in c.allocated_room_ids}
+    calc = compute_rooms_for_student_count(req.student_count, req.preferred_room_type, state.snapshot.rooms, locked_room_ids=locked_rooms)
     section_ids = [f"GRP_{cid}_SEC{chr(65 + i)}" for i in range(calc["rooms_required"])]
     
     # Register student groups into snapshot
@@ -1477,7 +1641,18 @@ def update_course(course_id: str, req: UpdateCourseCohortRequest):
         
     if req.student_count is not None and req.student_count > 0:
         cohort.student_count = req.student_count
-        calc = compute_rooms_for_student_count(cohort.student_count, cohort.preferred_room_type, state.snapshot.rooms)
+        locked_rooms = {
+            r_id
+            for other in state.course_cohorts
+            if other.course_id != cohort.course_id
+            for r_id in other.allocated_room_ids
+        }
+        calc = compute_rooms_for_student_count(
+            cohort.student_count,
+            cohort.preferred_room_type,
+            state.snapshot.rooms,
+            locked_room_ids=locked_rooms,
+        )
         cohort.rooms_required = calc["rooms_required"]
         cohort.allocated_room_ids = calc["allocated_room_ids"]
         cohort.allocated_room_names = calc["allocated_room_names"]
@@ -1568,7 +1743,18 @@ def add_subject_to_course(req: AddSubjectToCourseRequest):
         raise HTTPException(status_code=400, detail=f"Subject '{code_clean}' already exists in {cohort.course_name}.")
         
     # 2. Determine rooms and sections
-    calc = compute_rooms_for_student_count(cohort.student_count, req.room_type_id or cohort.preferred_room_type, state.snapshot.rooms)
+    locked_rooms = {
+        r_id
+        for other in state.course_cohorts
+        if other.course_id != cohort.course_id
+        for r_id in other.allocated_room_ids
+    }
+    calc = compute_rooms_for_student_count(
+        cohort.student_count,
+        req.room_type_id or cohort.preferred_room_type,
+        state.snapshot.rooms,
+        locked_room_ids=locked_rooms,
+    )
     rooms_needed = calc["rooms_required"]
     
     # Ensure section groups exist in snapshot
@@ -1594,8 +1780,9 @@ def add_subject_to_course(req: AddSubjectToCourseRequest):
         
     cohort.section_ids = section_gids
     cohort.rooms_required = rooms_needed
-    cohort.allocated_room_ids = calc["allocated_room_ids"]
-    cohort.allocated_room_names = calc["allocated_room_names"]
+    if not cohort.allocated_room_ids:
+        cohort.allocated_room_ids = calc["allocated_room_ids"]
+        cohort.allocated_room_names = calc["allocated_room_names"]
     
     # 3. Add to curriculum subjects list
     new_subject = CurriculumSubject(
@@ -1620,6 +1807,11 @@ def add_subject_to_course(req: AddSubjectToCourseRequest):
         new_requirements = []
         for i, sec_gid in enumerate(section_gids):
             req_id = f"REQ_{code_clean.replace('-', '_')}_{cohort.course_id}_{chr(65 + i)}"
+            pre_rm = (
+                cohort.allocated_room_ids[i]
+                if (req.subject_type.upper() == "THEORY" and cohort.allocated_room_ids and i < len(cohort.allocated_room_ids))
+                else None
+            )
             new_requirements.append(SessionRequirement(
                 requirement_id=req_id,
                 course_id=code_clean,
@@ -1633,6 +1825,7 @@ def add_subject_to_course(req: AddSubjectToCourseRequest):
                 sessions_per_week=req.sessions_per_week,
                 duration_slots=req.duration_slots,
                 room_type_id=req.room_type_id or cohort.preferred_room_type,
+                pre_assigned_room_id=pre_rm,
                 eligible_faculty_ids=req.faculty_ids if req.faculty_ids else ["FAC_CS_01"],
             ))
             
@@ -1673,12 +1866,13 @@ def get_room_allocations_audit():
     """Returns a full collision-free room allocation audit across all courses, capacities, and active timetable slots."""
     rooms = state.snapshot.rooms
     total_slots_per_week = 5 * 7  # 5 days * 7 periods = 35 weekly slots
+    req_map = {req.requirement_id: req for req in state.snapshot.requirements}
     
     report = []
     total_collisions = 0
     
     for r in rooms:
-        room_placements = [p for p in state.current_placements if getattr(p, "room_id", "") == r.room_id]
+        room_placements = [p for p in state.current_placements if getattr(p, "assigned_room_id", getattr(p, "room_id", "")) == r.room_id]
         
         slot_map = {}
         room_collisions = 0
@@ -1697,6 +1891,12 @@ def get_room_allocations_audit():
         
         occupancy_pct = round((len(room_placements) / total_slots_per_week) * 100, 1) if total_slots_per_week > 0 else 0
         
+        scheduled_courses = list({
+            req_map[p.requirement_id].course_id
+            for p in room_placements
+            if p.requirement_id in req_map
+        })
+
         report.append({
             "room_id": r.room_id,
             "room_name": r.name,
@@ -1707,7 +1907,7 @@ def get_room_allocations_audit():
             "occupancy_rate_pct": occupancy_pct,
             "is_collision_free": room_collisions == 0,
             "collisions_count": room_collisions,
-            "scheduled_courses": list({p.course_id for p in room_placements}),
+            "scheduled_courses": scheduled_courses,
         })
         
     return {
@@ -1731,7 +1931,7 @@ class LoginRequest(BaseModel):
 class CreateUserRequest(BaseModel):
     email: str
     name: str
-    role: str  # "ADMIN", "COORDINATOR", "FACULTY", "STUDENT"
+    role: str  # "ADMIN", "COORDINATOR", "FACULTY"
     department: str
     password: Optional[str] = "123"
 
@@ -1750,6 +1950,12 @@ class UpdateSettingsRequest(BaseModel):
     working_days_per_week: Optional[int] = None
     periods_per_day: Optional[int] = None
     teaching_practice_weeks: Optional[int] = None
+    campus_start_time: Optional[str] = None
+    campus_end_time: Optional[str] = None
+    default_period_duration_minutes: Optional[int] = None
+    break_duration_minutes: Optional[int] = None
+    lunch_break_after: Optional[int] = None
+    periods_schedule: Optional[List[Dict[str, Any]]] = None
     supabase_url: Optional[str] = None
     supabase_anon_key: Optional[str] = None
     auto_validate: Optional[bool] = None
@@ -1808,10 +2014,18 @@ def get_users():
 
 @app.post("/api/auth/users")
 def create_user(req: CreateUserRequest):
-    """Creates a new user with role-based permissions."""
+    """Creates a new user with role-based permissions and syncs to Supabase."""
     import datetime
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
+    valid_roles = ["ADMIN", "COORDINATOR", "FACULTY"]
+    chosen_role = req.role.strip().upper()
+    if chosen_role not in valid_roles:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid role '{req.role}'. Must be ADMIN, COORDINATOR, or FACULTY (Student access is removed)."
+        )
+
     # Check duplicate
     for u in state.users:
         if u["email"].lower() == req.email.strip().lower():
@@ -1822,52 +2036,62 @@ def create_user(req: CreateUserRequest):
         "email": req.email.strip(),
         "password": req.password or "123",
         "name": req.name.strip(),
-        "role": req.role.upper(),
+        "role": chosen_role,
         "department": req.department.strip(),
         "status": "ACTIVE",
         "created_at": now_str[:10],
     }
     state.users.append(new_user)
     
+    # Live cloud synchronization with Supabase
+    supabase_upsert_user(new_user)
+    
     state.audit_logs.insert(0, {
         "timestamp": now_str,
         "user_email": "admin",
         "action": "USER_CREATED",
-        "details": f"Created user {req.name} ({req.email}) with role {req.role}.",
+        "details": f"Created user {req.name} ({req.email}) with role {chosen_role} (Synced to Supabase).",
     })
-    return {"success": True, "message": f"User {req.name} created successfully.", "user": new_user}
+    return {"success": True, "message": f"User {req.name} created and synced with Supabase successfully.", "user": new_user}
 
 
 @app.put("/api/auth/users/{user_id}")
 def update_user(user_id: str, req: UpdateUserRequest):
-    """Updates user role, department, or active status."""
+    """Updates user role, department, or active status and syncs to Supabase."""
     import datetime
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    valid_roles = ["ADMIN", "COORDINATOR", "FACULTY"]
     for u in state.users:
         if u["user_id"] == user_id:
             if req.name is not None:
                 u["name"] = req.name
             if req.role is not None:
-                u["role"] = req.role.upper()
+                new_role = req.role.strip().upper()
+                if new_role not in valid_roles:
+                    raise HTTPException(status_code=400, detail=f"Invalid role '{req.role}'. Must be ADMIN, COORDINATOR, or FACULTY.")
+                u["role"] = new_role
             if req.department is not None:
                 u["department"] = req.department
             if req.status is not None:
                 u["status"] = req.status.upper()
             
+            # Live cloud synchronization with Supabase
+            supabase_upsert_user(u)
+
             state.audit_logs.insert(0, {
                 "timestamp": now_str,
                 "user_email": "admin",
                 "action": "USER_UPDATED",
-                "details": f"Updated user {u['name']} ({user_id}) - Role: {u['role']}, Status: {u['status']}.",
+                "details": f"Updated user {u['name']} ({user_id}) - Role: {u['role']}, Status: {u['status']} (Synced to Supabase).",
             })
-            return {"success": True, "message": f"User {u['name']} updated.", "user": u}
+            return {"success": True, "message": f"User {u['name']} updated and synced with Supabase.", "user": u}
     
     raise HTTPException(status_code=404, detail="User not found.")
 
 
 @app.delete("/api/auth/users/{user_id}")
 def delete_user(user_id: str):
-    """Deletes a user account (prevents deleting the primary admin hello@123.com)."""
+    """Deletes a user account and removes it from Supabase (prevents deleting the primary admin hello@123.com)."""
     import datetime
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     target = None
@@ -1883,12 +2107,17 @@ def delete_user(user_id: str):
         raise HTTPException(status_code=400, detail="Cannot delete root system administrator (hello@123.com).")
     
     state.users = [u for u in state.users if u["user_id"] != user_id]
+    
+    # Remove from Supabase cloud database
+    supabase_delete_user(user_id)
+    
     state.audit_logs.insert(0, {
         "timestamp": now_str,
         "user_email": "admin",
         "action": "USER_DELETED",
-        "details": f"Deleted user {target['name']} ({target['email']}).",
+        "details": f"Deleted user {target['name']} ({target['email']}) from system & Supabase.",
     })
+    return {"success": True, "message": f"User {target['name']} deleted from system and Supabase."}
     return {"success": True, "message": f"User {target['name']} deleted."}
 
 
@@ -1905,12 +2134,22 @@ def update_settings(req: UpdateSettingsRequest):
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     for k, v in req.model_dump(exclude_unset=True).items():
         state.settings[k] = v
+
+    if "periods_schedule" in state.settings and state.settings["periods_schedule"]:
+        cnt = len(state.settings["periods_schedule"])
+        state.settings["periods_per_day"] = cnt
+        try:
+            if hasattr(state, "snapshot") and state.snapshot and hasattr(state.snapshot, "time_grid") and state.snapshot.time_grid:
+                updated_grid = state.snapshot.time_grid.model_copy(update={"periods_per_day": cnt})
+                state.snapshot = state.snapshot.model_copy(update={"time_grid": updated_grid})
+        except Exception as e:
+            print(f"[Settings Update] Notice: TimeGrid copy: {e}")
     
     state.audit_logs.insert(0, {
         "timestamp": now_str,
         "user_email": "admin",
         "action": "SETTINGS_UPDATED",
-        "details": "Updated institution and curriculum framework parameters.",
+        "details": "Updated institution, term parameters, and lecture schedule timings.",
     })
     return {"success": True, "message": "Settings updated successfully.", "settings": state.settings}
 

@@ -12,7 +12,7 @@ interface SidebarProps {
   currentView: 'DASHBOARD' | 'TIMETABLE' | 'INPUT_STUDIO' | 'CURRICULUM' | 'SETTINGS';
   onSelectView: (view: 'DASHBOARD' | 'TIMETABLE' | 'INPUT_STUDIO' | 'CURRICULUM' | 'SETTINGS') => void;
   currentUser: User;
-  onRoleSwitch: (role: UserRole) => void;
+  onRoleSwitch?: (role: UserRole) => void;
   onLogout: () => void;
   validatorStatus: { isValid: boolean };
   // Optimization Profile & Actions
@@ -33,7 +33,7 @@ export function Sidebar({
   currentView,
   onSelectView,
   currentUser,
-  onRoleSwitch,
+  onRoleSwitch: _onRoleSwitch,
   onLogout,
   validatorStatus: _validatorStatus,
   activeProfile,
@@ -103,11 +103,6 @@ export function Sidebar({
       text: 'text-emerald-500', 
       gradient: 'from-emerald-600 via-teal-600 to-cyan-600' 
     },
-    STUDENT: { 
-      badge: isDark ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' : 'bg-amber-50 text-amber-700 border-amber-200', 
-      text: 'text-amber-500', 
-      gradient: 'from-amber-600 via-orange-600 to-rose-600' 
-    },
   };
 
   const navItems = [
@@ -141,12 +136,22 @@ export function Sidebar({
     },
     {
       id: 'SETTINGS',
-      label: 'Settings & Courses',
-      badge: 'Courses & RBAC',
+      label: 'Settings & Administration',
+      badge: 'Admin Only',
       icon: Settings,
-      desc: 'Courses, Rooms, Users & System Config',
+      desc: 'Users, Roles & Supabase Integration',
     },
   ];
+
+  const visibleNavItems = navItems.filter((item) => {
+    if (currentUser.role === 'FACULTY') {
+      return item.id === 'DASHBOARD' || item.id === 'TIMETABLE';
+    }
+    if (currentUser.role === 'COORDINATOR') {
+      return item.id !== 'SETTINGS';
+    }
+    return true; // ADMIN
+  });
 
   return (
     <aside
@@ -205,10 +210,10 @@ export function Sidebar({
               <span className={`text-[10px] font-black tracking-wider uppercase ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
                 Workspaces
               </span>
-              <span className="text-[10px] font-mono text-slate-400">4 Views</span>
+              <span className="text-[10px] font-mono text-slate-400">{visibleNavItems.length} Views</span>
             </div>
           )}
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const active = currentView === item.id;
             return (
@@ -270,7 +275,7 @@ export function Sidebar({
               <select
                 value={activeProfile}
                 onChange={(e) => onSelectProfile(e.target.value)}
-                disabled={isSolving}
+                disabled={isSolving || currentUser.role === 'FACULTY'}
                 aria-label="Solver Profile Selection"
                 className={`w-full text-xs font-bold rounded-xl px-3 py-2 border focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer transition ${
                   isDark 
@@ -280,12 +285,11 @@ export function Sidebar({
               >
                 <option value="BALANCED">Balanced Multi-Objective</option>
                 <option value="FACULTY_FRIENDLY">Faculty-Friendly (Min Gaps)</option>
-                <option value="STUDENT_FRIENDLY">Student-Friendly (Compact)</option>
                 <option value="SPACE_EFFICIENT">Space-Efficient (Room Load)</option>
               </select>
             </div>
 
-            {currentUser.role !== 'STUDENT' ? (
+            {currentUser.role !== 'FACULTY' ? (
               <button
                 onClick={onReoptimize}
                 disabled={isSolving}
@@ -296,10 +300,10 @@ export function Sidebar({
               </button>
             ) : (
               <div className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold border ${
-                isDark ? 'bg-slate-950/60 border-slate-800 text-slate-500' : 'bg-slate-100 border-slate-200 text-slate-500'
+                isDark ? 'bg-slate-950/60 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'
               }`}>
-                <Lock className="w-3.5 h-3.5" />
-                <span>Student Read-Only</span>
+                <Lock className="w-3.5 h-3.5 text-amber-400" />
+                <span>Faculty View (Read-Only)</span>
               </div>
             )}
           </div>
@@ -307,7 +311,7 @@ export function Sidebar({
           <div className="flex flex-col items-center gap-2 pt-2 border-t border-slate-800">
             <button
               onClick={onReoptimize}
-              disabled={isSolving || currentUser.role === 'STUDENT'}
+              disabled={isSolving || currentUser.role === 'FACULTY'}
               title="Re-Optimize Schedule"
               className="p-3 rounded-2xl bg-indigo-600 text-white hover:bg-indigo-500 transition shadow-lg shadow-indigo-600/25 disabled:opacity-40 cursor-pointer"
             >
@@ -451,33 +455,15 @@ export function Sidebar({
           )}
         </div>
 
-        {/* Role Switcher */}
+        {/* Assigned Role Badge */}
         {!collapsed && (
-          <div className={`space-y-1.5 pt-2 border-t ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
-            <div className="flex items-center justify-between text-[10px]">
-              <span className={`font-black uppercase tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                Perspective:
-              </span>
-              <span className={`px-2 py-0.5 rounded-full border text-[9px] font-black uppercase tracking-wide ${roleColors[currentUser.role].badge}`}>
-                {currentUser.role}
-              </span>
-            </div>
-
-            <select
-              value={currentUser.role}
-              onChange={(e) => onRoleSwitch(e.target.value as UserRole)}
-              aria-label="Switch User Role Perspective"
-              className={`w-full rounded-xl px-3 py-1.5 text-xs font-bold border focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer transition ${
-                isDark 
-                  ? 'bg-slate-900 border-slate-800 text-slate-200' 
-                  : 'bg-white border-slate-200 text-slate-800 shadow-xs'
-              }`}
-            >
-              <option value="ADMIN">ADMIN (Full Authority)</option>
-              <option value="COORDINATOR">COORDINATOR (Timetable Lead)</option>
-              <option value="FACULTY">FACULTY (Teaching View)</option>
-              <option value="STUDENT">STUDENT (Cohort Matrix)</option>
-            </select>
+          <div className={`pt-2 border-t flex items-center justify-between text-xs ${isDark ? 'border-slate-800/80' : 'border-slate-200'}`}>
+            <span className={`text-[10px] font-black uppercase tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+              Assigned Role:
+            </span>
+            <span className={`px-2.5 py-1 rounded-full border text-[10px] font-black uppercase tracking-wide ${roleColors[currentUser.role].badge}`}>
+              {currentUser.role === 'ADMIN' ? 'SUPER ADMIN' : currentUser.role}
+            </span>
           </div>
         )}
 

@@ -360,14 +360,42 @@ export function PrintPdfModal({
                             ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
                             : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                         }`}>
-                          {crs.rooms_required > 1 ? `${crs.rooms_required} Rooms Auto-Allotted` : '1 Room Sufficient'}
+                          {crs.rooms_required > 1 ? `${crs.rooms_required} Locked Rooms` : '1 Locked Room'}
                         </span>
-                        {crs.section_ids && crs.section_ids.length > 0 && (
-                          <span className={`text-[10px] font-mono ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-                            Sections: {crs.section_ids.map((s: string) => s.replace('GRP_BTECH_', '').replace('SEC', 'Sec ')).join(', ')}
+                        {crs.allocated_room_names && crs.allocated_room_names.length > 0 && (
+                          <span className={`text-[10px] font-mono ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                            🔒 {crs.allocated_room_names.map((n: string) => n.split(' (')[0]).join(', ')}
                           </span>
                         )}
                       </div>
+                      {crs.sections && crs.sections.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-slate-800/40">
+                          {crs.sections.map((sec: any) => {
+                            const secGid = sec.section_id || `GRP_${crs.course_id}_${sec.section_name.replace(' ', '')}`;
+                            const isSecSelected = selectedGroupIds.includes(secGid);
+                            return (
+                              <button
+                                key={secGid}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleGroup(secGid);
+                                }}
+                                className={`text-[10px] px-2 py-0.5 rounded-md font-mono font-bold flex items-center gap-1 border transition cursor-pointer ${
+                                  isSecSelected
+                                    ? 'bg-indigo-600 text-white border-indigo-400 shadow-sm'
+                                    : isDark
+                                      ? 'bg-slate-800/90 text-slate-300 border-slate-700 hover:border-slate-500'
+                                      : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
+                                }`}
+                              >
+                                <span>🔒 {sec.section_name}:</span>
+                                <span className="font-semibold text-emerald-400">{sec.room_name?.split(' (')[0] || sec.allocated_room_name?.split(' (')[0] || 'Room'}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

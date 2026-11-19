@@ -61,20 +61,33 @@ class CourseCohort(BaseModel):
     description: str = ""
 
 
-def compute_rooms_for_student_count(student_count: int, room_type_id: str, rooms: List[Any]) -> Dict[str, Any]:
-    """Calculates whether 1, 2, or more rooms are required based on student number and room capacity."""
+def compute_rooms_for_student_count(
+    student_count: int,
+    room_type_id: str,
+    rooms: List[Any],
+    locked_room_ids: Optional[Set[str]] = None,
+) -> Dict[str, Any]:
+    """Calculates whether 1, 2, or more rooms are required based on student number and room capacity.
+    Enforces exclusive room allocation so no physical classroom is shared across different courses/sections.
+    Flags room deficit error if campus matching rooms are insufficient.
+    """
+    if locked_room_ids is None:
+        locked_room_ids = set()
+
+    import math
     matching_rooms = [r for r in rooms if getattr(r, "room_type_id", "") == room_type_id]
     if not matching_rooms:
         matching_rooms = list(rooms)
     
     max_cap = max((getattr(r, "capacity", 60) for r in matching_rooms), default=60)
-    import math
     rooms_needed = max(1, math.ceil(student_count / max_cap))
     
-    allotted = matching_rooms[:rooms_needed]
-    if len(allotted) < rooms_needed:
-        extra = [r for r in rooms if r not in allotted][:rooms_needed - len(allotted)]
-        allotted.extend(extra)
+    # Pick exclusively available rooms that are NOT already locked to other courses
+    available_rooms = [r for r in matching_rooms if getattr(r, "room_id", "") not in locked_room_ids]
+    
+    allotted = available_rooms[:rooms_needed]
+    deficit = max(0, rooms_needed - len(allotted))
+    has_deficit = deficit > 0
     
     per_section = math.ceil(student_count / rooms_needed)
     sections = []
@@ -84,17 +97,76 @@ def compute_rooms_for_student_count(student_count: int, room_type_id: str, rooms
         sections.append({
             "section_name": f"Section {chr(65 + i)}",
             "students": count,
-            "room_id": getattr(rm, "room_id", "OVERFLOW_ROOM") if rm else "OVERFLOW_ROOM",
-            "room_name": getattr(rm, "name", "Overflow Hall") if rm else "Overflow Hall",
-            "capacity": getattr(rm, "capacity", 60) if rm else 60,
+            "room_id": getattr(rm, "room_id", "UNASSIGNED_DEFICIT") if rm else "UNASSIGNED_DEFICIT",
+            "room_name": f"{getattr(rm, 'name', 'Room')} ({getattr(rm, 'capacity', 60)} seats)" if rm else f"⚠️ Classroom Missing (Deficit #{i+1})",
+            "capacity": getattr(rm, "capacity", 60) if rm else 0,
+            "is_locked": rm is not None,
+            "has_deficit": rm is None,
         })
+    
+    allocated_ids = [getattr(r, "room_id", "") for r in allotted]
+    allocated_names = [f"{getattr(r, 'name', 'Room')} ({getattr(r, 'capacity', 60)} seats)" for r in allotted]
     
     return {
         "rooms_required": rooms_needed,
         "max_capacity_per_room": max_cap,
-        "allocated_room_ids": [getattr(r, "room_id", "") for r in allotted],
-        "allocated_room_names": [f"{getattr(r, 'name', 'Room')} ({getattr(r, 'capacity', 60)} seats)" for r in allotted],
+        "allocated_room_ids": allocated_ids,
+        "allocated_room_names": allocated_names,
         "sections": sections,
+        "has_deficit": has_deficit,
+        "deficit_count": deficit,
+        "error_message": f"Classroom Deficit: Requires {rooms_needed} {room_type_id}(s), but only {len(allotted)} available. {deficit} classroom(s) missing!" if has_deficit else None,
+    }
+
+
+def allocate_exclusive_rooms_for_all_cohorts(cohorts: List[Any], rooms: List[Any]) -> Dict[str, Any]:
+    """Globally allocates exclusive non-overlapping rooms across all registered courses and cohorts.
+    Guarantees 1 room -> 1 course/section. Never shares a room across multiple courses.
+    Detects any campus deficit and generates detailed error telemetry.
+    """
+    locked_rooms: Set[str] = set()
+    allocations = []
+    campus_deficits = []
+    total_required = 0
+
+    for c in cohorts:
+        preferred_type = getattr(c, "preferred_room_type", "LECTURE_HALL")
+        student_count = getattr(c, "student_count", 60)
+        
+        calc = compute_rooms_for_student_count(
+            student_count=student_count,
+            room_type_id=preferred_type,
+            rooms=rooms,
+            locked_room_ids=locked_rooms,
+        )
+        total_required += calc["rooms_required"]
+        
+        for r_id in calc["allocated_room_ids"]:
+            locked_rooms.add(r_id)
+
+        if calc["has_deficit"]:
+            campus_deficits.append({
+                "course_id": getattr(c, "course_id", ""),
+                "course_name": getattr(c, "course_name", ""),
+                "deficit_count": calc["deficit_count"],
+                "rooms_required": calc["rooms_required"],
+                "preferred_room_type": preferred_type,
+            })
+
+        allocations.append({
+            "cohort": c,
+            "calculation": calc,
+        })
+
+    matching_lecture_halls = [r for r in rooms if getattr(r, "room_type_id", "") == "LECTURE_HALL"]
+    
+    return {
+        "allocations": allocations,
+        "has_campus_deficit": len(campus_deficits) > 0,
+        "total_rooms_required": total_required,
+        "total_rooms_available": len(rooms),
+        "total_lecture_halls_available": len(matching_lecture_halls),
+        "campus_deficits": campus_deficits,
     }
 
 
@@ -141,10 +213,10 @@ def get_default_course_cohorts() -> List[CourseCohort]:
             student_count=70,
             preferred_room_type="LECTURE_HALL",
             rooms_required=1,
-            allocated_room_ids=["SMART_LH_101"],
-            allocated_room_names=["Smart Lecture Hall 101 (75 seats)"],
+            allocated_room_ids=["SMART_LH_105"],
+            allocated_room_names=["Smart Lecture Hall 105 (75 seats)"],
             section_ids=["GRP_BTECH_Y3_SECA"],
-            description="Third year specialized systems cohort. 70 students fitted into 1 lecture hall (75 capacity).",
+            description="Third year specialized systems cohort. 70 students fitted into 1 dedicated lecture hall (75 capacity).",
         ),
         CourseCohort(
             course_id="BTECH_Y4",
@@ -156,10 +228,117 @@ def get_default_course_cohorts() -> List[CourseCohort]:
             student_count=65,
             preferred_room_type="LECTURE_HALL",
             rooms_required=1,
-            allocated_room_ids=["SMART_LH_102"],
-            allocated_room_names=["Smart Lecture Hall 102 (75 seats)"],
+            allocated_room_ids=["SMART_LH_106"],
+            allocated_room_names=["Smart Lecture Hall 106 (75 seats)"],
             section_ids=["GRP_BTECH_Y4_SECA"],
             description="Final year AI, Deep Learning, and Capstone projects. 65 students allocated to dedicated hall.",
+        ),
+        # BCA Cohorts
+        CourseCohort(
+            course_id="BCA_Y1",
+            course_name="BCA 1st Year",
+            program_id="BCA",
+            year=1,
+            semester=1,
+            department="Computer Applications",
+            student_count=60,
+            preferred_room_type="LECTURE_HALL",
+            rooms_required=1,
+            allocated_room_ids=["SMART_LH_201"],
+            allocated_room_names=["BCA Smart Lecture Hall 201 (75 seats)"],
+            section_ids=["GRP_BCA_Y1_SECA"],
+            description="First year Computer Applications cohort.",
+        ),
+        CourseCohort(
+            course_id="BCA_Y2",
+            course_name="BCA 2nd Year",
+            program_id="BCA",
+            year=2,
+            semester=3,
+            department="Computer Applications",
+            student_count=55,
+            preferred_room_type="LECTURE_HALL",
+            rooms_required=1,
+            allocated_room_ids=["SMART_LH_202"],
+            allocated_room_names=["BCA Smart Lecture Hall 202 (75 seats)"],
+            section_ids=["GRP_BCA_Y2_SECA"],
+            description="Second year Computer Applications cohort.",
+        ),
+        CourseCohort(
+            course_id="BCA_Y3",
+            course_name="BCA 3rd Year",
+            program_id="BCA",
+            year=3,
+            semester=5,
+            department="Computer Applications",
+            student_count=50,
+            preferred_room_type="LECTURE_HALL",
+            rooms_required=1,
+            allocated_room_ids=["SMART_LH_203"],
+            allocated_room_names=["BCA Smart Lecture Hall 203 (75 seats)"],
+            section_ids=["GRP_BCA_Y3_SECA"],
+            description="Third year Computer Applications cohort.",
+        ),
+        # B.Tech ECE Cohorts
+        CourseCohort(
+            course_id="ECE_Y1",
+            course_name="B.Tech ECE 1st Year",
+            program_id="BTECH_ECE",
+            year=1,
+            semester=1,
+            department="Electronics & Communication Engineering",
+            student_count=60,
+            preferred_room_type="LECTURE_HALL",
+            rooms_required=1,
+            allocated_room_ids=["SMART_LH_301"],
+            allocated_room_names=["ECE Smart Lecture Hall 301 (75 seats)"],
+            section_ids=["GRP_ECE_Y1_SECA"],
+            description="First year Electronics & Communication cohort.",
+        ),
+        CourseCohort(
+            course_id="ECE_Y2",
+            course_name="B.Tech ECE 2nd Year",
+            program_id="BTECH_ECE",
+            year=2,
+            semester=3,
+            department="Electronics & Communication Engineering",
+            student_count=60,
+            preferred_room_type="LECTURE_HALL",
+            rooms_required=1,
+            allocated_room_ids=["SMART_LH_302"],
+            allocated_room_names=["ECE Smart Lecture Hall 302 (75 seats)"],
+            section_ids=["GRP_ECE_Y2_SECA"],
+            description="Second year Electronics & Communication cohort.",
+        ),
+        CourseCohort(
+            course_id="ECE_Y3",
+            course_name="B.Tech ECE 3rd Year",
+            program_id="BTECH_ECE",
+            year=3,
+            semester=5,
+            department="Electronics & Communication Engineering",
+            student_count=55,
+            preferred_room_type="LECTURE_HALL",
+            rooms_required=1,
+            allocated_room_ids=["SMART_LH_303"],
+            allocated_room_names=["ECE Smart Lecture Hall 303 (75 seats)"],
+            section_ids=["GRP_ECE_Y3_SECA"],
+            description="Third year Electronics & Communication cohort.",
+        ),
+        CourseCohort(
+            course_id="ECE_Y4",
+            course_name="B.Tech ECE 4th Year",
+            program_id="BTECH_ECE",
+            year=4,
+            semester=7,
+            department="Electronics & Communication Engineering",
+            student_count=50,
+            preferred_room_type="LECTURE_HALL",
+            rooms_required=1,
+            allocated_room_ids=["SMART_LH_304"],
+            allocated_room_names=["ECE Smart Lecture Hall 304 (75 seats)"],
+            section_ids=["GRP_ECE_Y4_SECA"],
+            description="Final year Electronics & Communication cohort.",
         ),
     ]
 
@@ -176,6 +355,26 @@ def get_default_programs() -> List[AcademicProgram]:
             semesters_per_year=2,
             total_semesters=8,
             description="Four-year professional engineering degree focusing on computing algorithms, software architecture, and artificial intelligence.",
+        ),
+        AcademicProgram(
+            program_id="BCA",
+            name="Bachelor of Computer Applications",
+            short_code="BCA",
+            department="Computer Applications",
+            duration_years=3,
+            semesters_per_year=2,
+            total_semesters=6,
+            description="Three-year undergraduate program in software engineering, database management, and web architectures.",
+        ),
+        AcademicProgram(
+            program_id="BTECH_ECE",
+            name="Bachelor of Technology in Electronics & Communication",
+            short_code="B.Tech ECE",
+            department="Electronics & Communication Engineering",
+            duration_years=4,
+            semesters_per_year=2,
+            total_semesters=8,
+            description="Four-year engineering degree covering embedded systems, VLSI design, wireless signal processing, and IoT.",
         ),
     ]
 
@@ -683,6 +882,9 @@ def get_default_curriculum_subjects() -> List[CurriculumSubject]:
         ),
     ])
 
+    # Include template curriculum subjects for additional degree programs (BCA, B.Tech ECE)
+    subjects.extend(get_template_curriculum_subjects())
+
     return subjects
 
 
@@ -705,7 +907,7 @@ def get_template_curriculum_subjects() -> List[CurriculumSubject]:
             sessions_per_week=3,
             duration_slots=1,
             room_type_id="LECTURE_HALL",
-            faculty_ids=["FAC_ENG_01"],
+            faculty_ids=["FAC_ECE_01"],
             cohort_name="B.Tech ECE Year 1",
         ),
         CurriculumSubject(
@@ -719,7 +921,7 @@ def get_template_curriculum_subjects() -> List[CurriculumSubject]:
             sessions_per_week=3,
             duration_slots=1,
             room_type_id="LECTURE_HALL",
-            faculty_ids=["FAC_ENG_01"],
+            faculty_ids=["FAC_ECE_02"],
             cohort_name="B.Tech ECE Year 2",
         ),
         CurriculumSubject(
@@ -733,7 +935,7 @@ def get_template_curriculum_subjects() -> List[CurriculumSubject]:
             sessions_per_week=3,
             duration_slots=1,
             room_type_id="LECTURE_HALL",
-            faculty_ids=["FAC_ENG_01"],
+            faculty_ids=["FAC_ECE_01"],
             cohort_name="B.Tech ECE Year 3",
         ),
         CurriculumSubject(
@@ -747,7 +949,7 @@ def get_template_curriculum_subjects() -> List[CurriculumSubject]:
             sessions_per_week=3,
             duration_slots=1,
             room_type_id="LECTURE_HALL",
-            faculty_ids=["FAC_ENG_01"],
+            faculty_ids=["FAC_ECE_02"],
             cohort_name="B.Tech ECE Year 4",
         ),
     ])
@@ -768,7 +970,7 @@ def get_template_curriculum_subjects() -> List[CurriculumSubject]:
             sessions_per_week=3,
             duration_slots=1,
             room_type_id="LECTURE_HALL",
-            faculty_ids=["FAC_CS_02"],
+            faculty_ids=["FAC_BCA_01"],
             cohort_name="BCA Year 1",
         ),
         CurriculumSubject(
@@ -782,7 +984,7 @@ def get_template_curriculum_subjects() -> List[CurriculumSubject]:
             sessions_per_week=3,
             duration_slots=1,
             room_type_id="LECTURE_HALL",
-            faculty_ids=["FAC_CS_01"],
+            faculty_ids=["FAC_BCA_02"],
             cohort_name="BCA Year 1",
         ),
         # Year 2
@@ -797,7 +999,7 @@ def get_template_curriculum_subjects() -> List[CurriculumSubject]:
             sessions_per_week=3,
             duration_slots=1,
             room_type_id="LECTURE_HALL",
-            faculty_ids=["FAC_CS_02"],
+            faculty_ids=["FAC_BCA_01"],
             cohort_name="BCA Year 2",
         ),
         CurriculumSubject(
@@ -811,7 +1013,7 @@ def get_template_curriculum_subjects() -> List[CurriculumSubject]:
             sessions_per_week=3,
             duration_slots=1,
             room_type_id="LECTURE_HALL",
-            faculty_ids=["FAC_CS_01"],
+            faculty_ids=["FAC_BCA_02"],
             cohort_name="BCA Year 2",
         ),
         # Year 3
@@ -826,7 +1028,7 @@ def get_template_curriculum_subjects() -> List[CurriculumSubject]:
             sessions_per_week=3,
             duration_slots=1,
             room_type_id="LECTURE_HALL",
-            faculty_ids=["FAC_CS_02"],
+            faculty_ids=["FAC_BCA_01"],
             cohort_name="BCA Year 3",
         ),
         CurriculumSubject(
@@ -840,7 +1042,7 @@ def get_template_curriculum_subjects() -> List[CurriculumSubject]:
             sessions_per_week=3,
             duration_slots=1,
             room_type_id="LECTURE_HALL",
-            faculty_ids=["FAC_CS_01"],
+            faculty_ids=["FAC_BCA_02"],
             cohort_name="BCA Year 3",
         ),
     ])
@@ -1020,6 +1222,17 @@ def build_curriculum_institution_snapshot(
         Room(room_id="SMART_LH_102", name="Smart Lecture Hall 102", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD", "AUDIO_VISUAL"}),
         Room(room_id="SMART_LH_103", name="Smart Lecture Hall 103", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD"}),
         Room(room_id="SMART_LH_104", name="Smart Lecture Hall 104", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD"}),
+        Room(room_id="SMART_LH_105", name="Smart Lecture Hall 105", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD"}),
+        Room(room_id="SMART_LH_106", name="Smart Lecture Hall 106", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD"}),
+        # Dedicated BCA Lecture Halls
+        Room(room_id="SMART_LH_201", name="BCA Smart Lecture Hall 201", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD"}),
+        Room(room_id="SMART_LH_202", name="BCA Smart Lecture Hall 202", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD"}),
+        Room(room_id="SMART_LH_203", name="BCA Smart Lecture Hall 203", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD"}),
+        # Dedicated ECE Lecture Halls
+        Room(room_id="SMART_LH_301", name="ECE Smart Lecture Hall 301", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD"}),
+        Room(room_id="SMART_LH_302", name="ECE Smart Lecture Hall 302", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD"}),
+        Room(room_id="SMART_LH_303", name="ECE Smart Lecture Hall 303", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD"}),
+        Room(room_id="SMART_LH_304", name="ECE Smart Lecture Hall 304", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD"}),
         Room(room_id="COMP_LAB_1", name="Computer & AI Laboratory", room_type_id="COMPUTER_LAB", capacity=75, features={"COMPUTERS", "INTERNET"}),
         Room(room_id="COMP_LAB_2", name="Digital Skills & Analytics Lab", room_type_id="COMPUTER_LAB", capacity=75, features={"COMPUTERS", "INTERNET"}),
         Room(room_id="PEDAGOGY_LAB_1", name="Teacher Education Pedagogy Hall", room_type_id="PEDAGOGY_ROOM", capacity=60, features={"MICRO_TEACHING"}),
@@ -1038,6 +1251,12 @@ def build_curriculum_institution_snapshot(
         Faculty(faculty_id="FAC_ENG_01", name="Dr. Rabindranath Tagore", department_id="ENGINEERING", designation="Professor", max_hours_week=16),
         Faculty(faculty_id="FAC_EDU_01", name="Prof. S. Radhakrishnan", department_id="EDUCATION", designation="Professor", max_hours_week=16),
         Faculty(faculty_id="FAC_ECO_01", name="Dr. Amartya Sen", department_id="ECONOMICS", designation="Professor", max_hours_week=16),
+        # Dedicated BCA Faculty
+        Faculty(faculty_id="FAC_BCA_01", name="Prof. Dennis Ritchie", department_id="COMPUTER_APPLICATIONS", designation="Professor", max_hours_week=16),
+        Faculty(faculty_id="FAC_BCA_02", name="Dr. Bjarne Stroustrup", department_id="COMPUTER_APPLICATIONS", designation="Associate Professor", max_hours_week=16),
+        # Dedicated ECE Faculty
+        Faculty(faculty_id="FAC_ECE_01", name="Dr. Claude Shannon", department_id="ELECTRONICS", designation="Professor", max_hours_week=16),
+        Faculty(faculty_id="FAC_ECE_02", name="Dr. Nikola Tesla", department_id="ELECTRONICS", designation="Associate Professor", max_hours_week=16),
     ]
 
     # Distributed faculty assignment to keep individual loads well below 16 hours
@@ -1067,6 +1286,18 @@ def build_curriculum_institution_snapshot(
         "CS-401P": ["FAC_CS_05"],
         "CS-402": ["FAC_CS_04"],
         "CS-403": ["FAC_CS_05"],
+        # BCA Subjects
+        "BCA-101": ["FAC_BCA_01"],
+        "BCA-102": ["FAC_BCA_02"],
+        "BCA-201": ["FAC_BCA_01"],
+        "BCA-202": ["FAC_BCA_02"],
+        "BCA-301": ["FAC_BCA_01"],
+        "BCA-302": ["FAC_BCA_02"],
+        # ECE Subjects
+        "ECE-101": ["FAC_ECE_01"],
+        "ECE-201": ["FAC_ECE_02"],
+        "ECE-301": ["FAC_ECE_01"],
+        "ECE-401": ["FAC_ECE_02"],
     }
 
     student_groups: List[StudentGroup] = []
@@ -1121,6 +1352,10 @@ def build_curriculum_institution_snapshot(
             for i, sec_gid in enumerate(section_gids):
                 sec_letter = chr(65 + i)
                 req_id = f"REQ_{sub.subject_code.replace('-', '_')}_{cohort.course_id}_{sec_letter}"
+                # For theory lectures, bind exclusively to the section's allocated locked classroom
+                locked_rm_id = cohort.allocated_room_ids[i] if i < len(cohort.allocated_room_ids) else None
+                pre_room = locked_rm_id if sub.room_type_id == "LECTURE_HALL" else None
+
                 requirements.append(
                     SessionRequirement(
                         requirement_id=req_id,
@@ -1134,6 +1369,7 @@ def build_curriculum_institution_snapshot(
                         sessions_per_week=sub.sessions_per_week,
                         duration_slots=sub.duration_slots,
                         room_type_id=sub.room_type_id,
+                        pre_assigned_room_id=pre_room,
                         eligible_faculty_ids=fac_ids,
                     )
                 )

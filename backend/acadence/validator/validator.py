@@ -217,6 +217,15 @@ def validate(
                                 message=f"Room capacity {rm.capacity} is less than audience strength {strength}.",
                             )
                         )
+                    if getattr(req, "pre_assigned_room_id", None) and p.assigned_room_id != req.pre_assigned_room_id:
+                        violations.append(
+                            ValidationViolation(
+                                check_id="VAL-005",
+                                entity_type="ROOM",
+                                entity_id=rm.room_id,
+                                message=f"Expected pre-assigned room {req.pre_assigned_room_id}, got {p.assigned_room_id}.",
+                            )
+                        )
                     if not rm.features.issuperset(req.required_features):
                         violations.append(
                             ValidationViolation(

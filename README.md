@@ -97,6 +97,17 @@ Acadence includes a built-in authentication and permission system designed for e
 - **Python 3.11+** (Tested on Python 3.13)
 - **Node.js 18+** and **npm**
 
+### Quick Start (1-Click Run)
+Double-click `run.bat` or run:
+```powershell
+.\run.ps1
+```
+This automatically launches both the FastAPI backend (`:8000`) and the Vite web client (`:5173`).
+
+---
+
+### Manual Step-by-Step Setup
+
 ### Step 1: Install Backend Dependencies
 ```bash
 # Clone the repository
@@ -104,13 +115,13 @@ git clone https://github.com/organization/acadence.git
 cd acadence
 
 # Install backend dependencies
-pip install -r backend/requirements.txt
+py -3.13 -m pip install -r backend/requirements.txt
 ```
 
 ### Step 2: Run the Backend API Service
 ```bash
-# From repository root
-python -m uvicorn acadence.api.app:app --host 127.0.0.1 --port 8000 --reload
+# From repository root (or cd backend)
+py -3.13 -m uvicorn acadence.api.app:app --host 127.0.0.1 --port 8000 --reload
 ```
 The FastAPI documentation will be live at `http://127.0.0.1:8000/docs`.
 
@@ -125,7 +136,7 @@ Open `http://localhost:5173` in your browser and log in with `hello@123.com` / `
 ### Step 4: Run the Complete Automated Test Suite
 ```bash
 # From repository root
-python -m pytest tests -v
+py -3.13 -m pytest tests -v
 ```
 All automated test suites verify solver optimality, oracle checks, API endpoints, exports, and scenario simulations.
 

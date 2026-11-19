@@ -137,16 +137,32 @@ def export_to_pdf(
             c_sem = getattr(c, 'semester', None) or (c.get('semester') if isinstance(c, dict) else 1)
             c_count = getattr(c, 'student_count', None) or (c.get('student_count') if isinstance(c, dict) else 60)
             raw_sec_ids = getattr(c, 'section_ids', None) or (c.get('section_ids') if isinstance(c, dict) else [])
-            sec_ids = set(raw_sec_ids or [])
-            sec_ids.add(gid)
-            target_pages.append({
-                "subhead": f"Course Cohort: {c_name} (Semester {c_sem}) • {c_count} Enrolled Students",
-                "filter": (lambda s_ids: lambda p: any(s in (req_map.get(p.requirement_id).group_ids if p.requirement_id in req_map else []) for s in s_ids))(sec_ids),
-            })
+            sections = getattr(c, 'sections', None) or (c.get('sections') if isinstance(c, dict) else [])
+            
+            # If cohort has multiple sections, generate a dedicated page for EACH section so they never overlap
+            if raw_sec_ids and len(raw_sec_ids) > 1:
+                for s_idx, sid in enumerate(raw_sec_ids):
+                    s_info = sections[s_idx] if s_idx < len(sections) else {}
+                    s_name = getattr(s_info, 'section_name', None) or (s_info.get('section_name') if isinstance(s_info, dict) else None) or f"Section {chr(65+s_idx)}"
+                    s_room = getattr(s_info, 'room_name', None) or (s_info.get('room_name') if isinstance(s_info, dict) else None) or ""
+                    room_badge = f" • Locked: {s_room}" if s_room else ""
+                    target_pages.append({
+                        "subhead": f"Course: {c_name} ({s_name}) • Semester {c_sem}{room_badge}",
+                        "filter": (lambda s_id: lambda p: s_id in (req_map.get(p.requirement_id).group_ids if p.requirement_id in req_map else []))(sid),
+                    })
+            else:
+                sid = raw_sec_ids[0] if raw_sec_ids else gid
+                s_info = sections[0] if sections else {}
+                s_room = s_info.get('room_name') if isinstance(s_info, dict) else ""
+                room_badge = f" • Locked: {s_room}" if s_room else ""
+                target_pages.append({
+                    "subhead": f"Course: {c_name} • Semester {c_sem} • {c_count} Enrolled{room_badge}",
+                    "filter": (lambda s_id, g_id: lambda p: any(s in (req_map.get(p.requirement_id).group_ids if p.requirement_id in req_map else []) for s in [s_id, g_id]))(sid, gid),
+                })
         elif gid in group_map:
             g = group_map[gid]
             target_pages.append({
-                "subhead": f"Student Section: {g.name} • {g.expected_strength} Students",
+                "subhead": f"Student Section: {g.name} • {g.expected_strength} Enrolled Students",
                 "filter": (lambda g_id: lambda p: g_id in (req_map.get(p.requirement_id).group_ids if p.requirement_id in req_map else []))(gid),
             })
 
@@ -170,7 +186,7 @@ def export_to_pdf(
             "filter": (lambda r_id: lambda p: p.assigned_room_id == r_id)(rid),
         })
 
-    # 4. Fallback if no filters are selected: Export all active course cohorts
+    # 4. Fallback if no filters are selected: Export all active course cohorts (each section on its own page)
     if not target_pages:
         if course_cohorts:
             for c in course_cohorts:
@@ -179,13 +195,26 @@ def export_to_pdf(
                 c_sem = getattr(c, 'semester', None) or (c.get('semester') if isinstance(c, dict) else 1)
                 c_count = getattr(c, 'student_count', None) or (c.get('student_count') if isinstance(c, dict) else 60)
                 raw_sec_ids = getattr(c, 'section_ids', None) or (c.get('section_ids') if isinstance(c, dict) else [])
-                sec_ids = set(raw_sec_ids or [])
-                if cid:
-                    sec_ids.add(cid)
-                target_pages.append({
-                    "subhead": f"Course Cohort: {c_name} (Semester {c_sem}) • {c_count} Enrolled Students",
-                    "filter": (lambda s_ids: lambda p: any(s in (req_map.get(p.requirement_id).group_ids if p.requirement_id in req_map else []) for s in s_ids))(sec_ids),
-                })
+                sections = getattr(c, 'sections', None) or (c.get('sections') if isinstance(c, dict) else [])
+                if raw_sec_ids and len(raw_sec_ids) > 1:
+                    for s_idx, sid in enumerate(raw_sec_ids):
+                        s_info = sections[s_idx] if s_idx < len(sections) else {}
+                        s_name = getattr(s_info, 'section_name', None) or (s_info.get('section_name') if isinstance(s_info, dict) else None) or f"Section {chr(65+s_idx)}"
+                        s_room = getattr(s_info, 'room_name', None) or (s_info.get('room_name') if isinstance(s_info, dict) else None) or ""
+                        room_badge = f" • Locked: {s_room}" if s_room else ""
+                        target_pages.append({
+                            "subhead": f"Course: {c_name} ({s_name}) • Semester {c_sem}{room_badge}",
+                            "filter": (lambda s_id: lambda p: s_id in (req_map.get(p.requirement_id).group_ids if p.requirement_id in req_map else []))(sid),
+                        })
+                else:
+                    sid = raw_sec_ids[0] if raw_sec_ids else cid
+                    s_info = sections[0] if sections else {}
+                    s_room = s_info.get('room_name') if isinstance(s_info, dict) else ""
+                    room_badge = f" • Locked: {s_room}" if s_room else ""
+                    target_pages.append({
+                        "subhead": f"Course: {c_name} • Semester {c_sem} • {c_count} Enrolled{room_badge}",
+                        "filter": (lambda s_id, g_id: lambda p: any(s in (req_map.get(p.requirement_id).group_ids if p.requirement_id in req_map else []) for s in [s_id, g_id]))(sid, cid),
+                    })
         else:
             leaf_groups = [g for g in snapshot.student_groups if g.parent_id or not any(o.parent_id == g.group_id for o in snapshot.student_groups)]
             for g in leaf_groups:
@@ -255,12 +284,23 @@ def export_to_pdf(
                     snippets = []
                     for p, req in items:
                         rm = room_map.get(p.assigned_room_id, 'Assigned Room')
+                        # Clean compact abbreviations so room name never gets truncated
+                        rm_clean = (
+                            rm.replace("Smart Lecture Hall", "Smart LH")
+                              .replace("Computer & AI Laboratory", "Comp & AI Lab")
+                              .replace("Digital Skills & Analytics Lab", "Analytics Lab")
+                              .replace("Teacher Education Pedagogy Hall", "Pedagogy Hall")
+                              .replace("Multidisciplinary Science Lab", "Science Lab")
+                        )
                         facs = ', '.join(fac_map.get(fid, fid) for fid in (p.assigned_faculty_ids or []))
-                        # Clean text layout without missing Unicode glyphs / square boxes
+                        # Compact title if too long
+                        c_title = req.course_name
+                        if len(c_title) > 34:
+                            c_title = c_title[:32] + ".."
                         snippet = (
                             f"<b>{req.course_id}</b><br/>"
-                            f"<b>{req.course_name}</b><br/>"
-                            f"<font color='#475569'><b>Room:</b> {rm}</font><br/>"
+                            f"<b>{c_title}</b><br/>"
+                            f"<font color='#475569'><b>Room:</b> {rm_clean}</font><br/>"
                             f"<font color='#2563EB'><b>Fac:</b> {facs}</font>"
                         )
                         snippets.append(snippet)
@@ -270,7 +310,7 @@ def export_to_pdf(
                     row.append(Paragraph("<font color='#CBD5E1'>---</font>", cell_day_style))
             table_data.append(row)
 
-        col_widths = [62] + [78] * 9
+        col_widths = [56] + [80] * 9
         row_heights = [22] + [68] * 5  # Fixed row heights to guarantee exactly 1 page per timetable
         t = Table(table_data, colWidths=col_widths, rowHeights=row_heights, repeatRows=1)
         t.setStyle(TableStyle([
@@ -280,10 +320,10 @@ def export_to_pdf(
             ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
             ('BACKGROUND', (0, 1), (0, -1), colors.HexColor('#F8FAFC')),
             ('BACKGROUND', (4, 1), (4, -1), colors.HexColor('#FEF3C7')),  # Lunch column
-            ('TOPPADDING', (0, 0), (-1, -1), 2),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
-            ('LEFTPADDING', (0, 0), (-1, -1), 3),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+            ('TOPPADDING', (0, 0), (-1, -1), 1.5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
+            ('LEFTPADDING', (0, 0), (-1, -1), 2.5),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 2.5),
         ]))
         story.append(t)
 

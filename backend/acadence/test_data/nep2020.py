@@ -107,6 +107,8 @@ def generate_nep2020_institution_snapshot(seed: int = 42) -> ConfigSnapshot:
         Room(room_id="SMART_LH_102", name="Smart Lecture Hall 102", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD", "AUDIO_VISUAL"}),
         Room(room_id="SMART_LH_103", name="Smart Lecture Hall 103", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD"}),
         Room(room_id="SMART_LH_104", name="Smart Lecture Hall 104", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD"}),
+        Room(room_id="SMART_LH_105", name="Smart Lecture Hall 105", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD"}),
+        Room(room_id="SMART_LH_106", name="Smart Lecture Hall 106", room_type_id="LECTURE_HALL", capacity=75, features={"SMART_BOARD"}),
         # Specialized Labs
         Room(room_id="COMP_LAB_1", name="Computer & AI Laboratory", room_type_id="COMPUTER_LAB", capacity=65, features={"COMPUTERS", "INTERNET"}),
         Room(room_id="COMP_LAB_2", name="Digital Skills & Analytics Lab", room_type_id="COMPUTER_LAB", capacity=65, features={"COMPUTERS", "INTERNET"}),

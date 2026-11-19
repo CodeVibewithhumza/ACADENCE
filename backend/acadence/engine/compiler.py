@@ -96,6 +96,13 @@ def compile_snapshot(snapshot: ConfigSnapshot) -> CompiledModelInput:
         # Eligible rooms R_i
         if not req.room_required:
             eligible_rooms = []
+        elif getattr(req, "pre_assigned_room_id", None):
+            eligible_rooms = [req.pre_assigned_room_id]
+        elif getattr(req, "eligible_room_ids", None):
+            eligible_rooms = [
+                r_id for r_id in req.eligible_room_ids
+                if any(r.room_id == r_id for r in snapshot.rooms)
+            ]
         else:
             eligible_rooms = [
                 r.room_id

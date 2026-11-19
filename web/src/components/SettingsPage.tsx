@@ -1,113 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Users, Shield, Building2, Database, History, Plus,
+  Users, Building2, Database, History, Plus,
   Check, Trash2, RefreshCw,
   Sliders, Server, CheckCircle2, Lock, X,
-  GraduationCap, BookOpen, Sparkles, Layers,
-  DoorOpen, Users2, Clock,
-  Edit3, ListFilter, CheckCircle, Calendar
+  Clock, Sparkles
 } from 'lucide-react';
-import type { User, UserRole, SystemSettings, AuditLogEntry } from '../types/auth';
-
-interface CourseSectionInfo {
-  section_name: string;
-  students: number;
-  room_id: string;
-  room_name: string;
-  capacity: number;
-}
-
-interface CourseSubjectItem {
-  subject_code: string;
-  subject_name: string;
-  program_id: string;
-  year: number;
-  semester: number;
-  subject_type: string;
-  credits: number;
-  sessions_per_week: number;
-  duration_slots: number;
-  room_type_id: string;
-  faculty_ids: string[];
-  cohort_name?: string;
-}
-
-interface CourseCohortItem {
-  course_id: string;
-  course_name: string;
-  program_id: string;
-  year: number;
-  semester: number;
-  department: string;
-  student_count: number;
-  preferred_room_type: string;
-  rooms_required: number;
-  max_capacity_per_room: number;
-  allocated_room_ids: string[];
-  allocated_room_names: string[];
-  section_ids: string[];
-  sections: CourseSectionInfo[];
-  description: string;
-  subjects_count: number;
-  subjects: CourseSubjectItem[];
-  active_placements_count: number;
-  collision_free: boolean;
-}
-
-interface RoomAuditEntry {
-  room_id: string;
-  room_name: string;
-  capacity: number;
-  room_type_id: string;
-  assigned_cohorts: string[];
-  scheduled_slots_count: number;
-  occupancy_rate_pct: number;
-  is_collision_free: boolean;
-  collisions_count: number;
-  scheduled_courses: string[];
-}
+import type { User, UserRole, SystemSettings, AuditLogEntry, PeriodScheduleItem } from '../types/auth';
 
 interface SettingsPageProps {
   currentUser: User;
   theme?: 'dark' | 'light';
   onNavigateTimetable?: (programId?: string, courseId?: string) => void;
+  onSettingsSaved?: (newSettings: SystemSettings) => void;
 }
 
-export function SettingsPage({ currentUser, theme = 'dark', onNavigateTimetable }: SettingsPageProps) {
+export function SettingsPage({ currentUser, theme = 'dark', onSettingsSaved }: SettingsPageProps) {
   const isDark = theme !== 'light';
-  const [activeTab, setActiveTab] = useState<'COURSES' | 'USERS' | 'ROLES' | 'INSTITUTION' | 'SUPABASE' | 'AUDIT'>('COURSES');
-
-  // Courses & Room Engine State
-  const [courses, setCourses] = useState<CourseCohortItem[]>([]);
-  const [coursesLoading, setCoursesLoading] = useState(false);
-  const [roomAudits, setRoomAudits] = useState<RoomAuditEntry[]>([]);
-  const [roomAuditView, setRoomAuditView] = useState(false);
-  const [courseFilterSearch, setCourseFilterSearch] = useState('');
-
-  // Modals State
-  const [showAddSubjectModal, setShowAddSubjectModal] = useState(false);
-  const [showCreateCourseModal, setShowCreateCourseModal] = useState(false);
-  const [editingStudentCountCourse, setEditingStudentCountCourse] = useState<CourseCohortItem | null>(null);
-  const [newStudentCountValue, setNewStudentCountValue] = useState<number>(140);
-
-  // Add Subject Form
-  const [targetCourseId, setTargetCourseId] = useState<string>('BTECH_Y1');
-  const [subCode, setSubCode] = useState<string>('MATH-101');
-  const [subName, setSubName] = useState<string>('Engineering Mathematics - 1');
-  const [subType, setSubType] = useState<string>('THEORY');
-  const [subCredits, setSubCredits] = useState<number>(4);
-  const [subSessions, setSubSessions] = useState<number>(3);
-  const [subScheduleNow, setSubScheduleNow] = useState<boolean>(true);
-  const [subSubmitLoading, setSubSubmitLoading] = useState<boolean>(false);
-
-  // Create Course Form
-  const [newCName, setNewCName] = useState<string>('B.Tech 1st Year');
-  const [newCProg, setNewCProg] = useState<string>('BTECH_CSE');
-  const [newCYear, setNewCYear] = useState<number>(1);
-  const [newCSem, setNewCSem] = useState<number>(1);
-  const [newCDept, setNewCDept] = useState<string>('Computer Science & Engineering');
-  const [newCStrength, setNewCStrength] = useState<number>(140);
-  const [newCRoomType, setNewCRoomType] = useState<string>('LECTURE_HALL');
+  const [activeTab, setActiveTab] = useState<'USERS' | 'INSTITUTION' | 'SUPABASE' | 'AUDIT'>('USERS');
 
   // Users State
   const [users, setUsers] = useState<User[]>([]);
@@ -120,14 +29,29 @@ export function SettingsPage({ currentUser, theme = 'dark', onNavigateTimetable 
   const [newUserPass, setNewUserPass] = useState('123');
   const [userActionMessage, setUserActionMessage] = useState<string | null>(null);
 
-  // Settings State
+  // Settings State with customizable lecture times & period schedule
   const [settings, setSettings] = useState<SystemSettings>({
     institution_name: 'Metropolitan University',
     academic_session: 'Fall Semester 2026',
-    nep_framework: 'Semester & Credit-Based System',
+    nep_framework: 'Semester & Credit-Based Curriculum',
     working_days_per_week: 5,
-    periods_per_day: 7,
+    periods_per_day: 8,
     teaching_practice_weeks: 4,
+    campus_start_time: '08:30',
+    campus_end_time: '15:40',
+    default_period_duration_minutes: 50,
+    break_duration_minutes: 30,
+    lunch_break_after: 3,
+    periods_schedule: [
+      { p: 0, label: 'P1', start_time: '08:30', end_time: '09:20', is_break: false },
+      { p: 1, label: 'P2', start_time: '09:20', end_time: '10:10', is_break: false },
+      { p: 2, label: 'P3', start_time: '10:10', end_time: '11:00', is_break: false },
+      { p: 3, label: 'P4', start_time: '11:30', end_time: '12:20', is_break: false },
+      { p: 4, label: 'P5', start_time: '12:20', end_time: '13:10', is_break: false },
+      { p: 5, label: 'P6', start_time: '13:10', end_time: '14:00', is_break: false },
+      { p: 6, label: 'P7', start_time: '14:00', end_time: '14:50', is_break: false },
+      { p: 7, label: 'P8', start_time: '14:50', end_time: '15:40', is_break: false },
+    ],
     supabase_url: 'https://gmukjwmwerbjwxbujsuy.supabase.co',
     supabase_anon_key: 'sb_publishable_GTEjmmgPM683f21WSOGkFw_GR7iDULn',
     auto_validate: true,
@@ -141,133 +65,10 @@ export function SettingsPage({ currentUser, theme = 'dark', onNavigateTimetable 
   const [auditLoading, setAuditLoading] = useState(false);
 
   useEffect(() => {
-    fetchCourses();
     fetchUsers();
     fetchSettings();
     fetchAuditLogs();
   }, []);
-
-  async function fetchCourses() {
-    setCoursesLoading(true);
-    try {
-      const res = await fetch('/api/courses');
-      const data = await res.json();
-      if (data.courses) {
-        setCourses(data.courses);
-        if (data.courses.length > 0 && !targetCourseId) {
-          setTargetCourseId(data.courses[0].course_id);
-        }
-      }
-      const res2 = await fetch('/api/courses/room-allocations');
-      const data2 = await res2.json();
-      if (data2.rooms) {
-        setRoomAudits(data2.rooms);
-      }
-    } catch (err) {
-      console.error('Failed to fetch courses', err);
-    } finally {
-      setCoursesLoading(false);
-    }
-  }
-
-  async function handleAddSubjectToCourse(e: React.FormEvent) {
-    e.preventDefault();
-    setSubSubmitLoading(true);
-    try {
-      const res = await fetch('/api/courses/add-subject', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          course_id: targetCourseId,
-          subject_code: subCode.trim().toUpperCase(),
-          subject_name: subName.trim(),
-          subject_type: subType,
-          credits: subCredits,
-          sessions_per_week: subSessions,
-          schedule_now: subScheduleNow,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Failed to add subject to course');
-
-      setUserActionMessage(`Enrolled "${subCode}: ${subName}" into ${data.course?.course_name || targetCourseId}. Auto-allocated ${data.sections_count} room(s): ${data.rooms_allocated?.join(', ')}. Status: 0 Clashes!`);
-      setShowAddSubjectModal(false);
-      setSubCode('');
-      setSubName('');
-      setTimeout(() => setUserActionMessage(null), 5000);
-      await fetchCourses();
-      await fetchAuditLogs();
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setSubSubmitLoading(false);
-    }
-  }
-
-  async function handleCreateCourse(e: React.FormEvent) {
-    e.preventDefault();
-    try {
-      const res = await fetch('/api/courses', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          course_name: newCName.trim(),
-          program_id: newCProg,
-          year: newCYear,
-          semester: newCSem,
-          department: newCDept.trim(),
-          student_count: Number(newCStrength),
-          preferred_room_type: newCRoomType,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Failed to create course');
-
-      setUserActionMessage(`Course "${newCName}" created with ${data.calculation?.rooms_required} auto-allocated room(s).`);
-      setShowCreateCourseModal(false);
-      setTimeout(() => setUserActionMessage(null), 4000);
-      await fetchCourses();
-      await fetchAuditLogs();
-    } catch (err: any) {
-      alert(err.message);
-    }
-  }
-
-  async function handleUpdateStudentStrength(courseId: string, count: number) {
-    try {
-      const res = await fetch(`/api/courses/${courseId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ student_count: Number(count) }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Failed to update student count');
-
-      setUserActionMessage(`Updated student enrollment for ${data.course?.course_name}. Auto-calculated: ${data.course?.rooms_required} room(s) required.`);
-      setEditingStudentCountCourse(null);
-      setTimeout(() => setUserActionMessage(null), 4000);
-      await fetchCourses();
-      await fetchAuditLogs();
-    } catch (err: any) {
-      alert(err.message);
-    }
-  }
-
-  async function handleDeleteCourse(courseId: string, courseName: string) {
-    if (!confirm(`Are you sure you want to delete course cohort "${courseName}"?`)) return;
-    try {
-      const res = await fetch(`/api/courses/${courseId}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Failed to delete course');
-
-      setUserActionMessage(`Course "${courseName}" deleted.`);
-      setTimeout(() => setUserActionMessage(null), 3000);
-      await fetchCourses();
-      await fetchAuditLogs();
-    } catch (err: any) {
-      alert(err.message);
-    }
-  }
 
   async function fetchUsers() {
     setUsersLoading(true);
@@ -287,7 +88,16 @@ export function SettingsPage({ currentUser, theme = 'dark', onNavigateTimetable 
     try {
       const res = await fetch('/api/settings');
       const data = await res.json();
-      setSettings(data);
+      if (data) {
+        setSettings(prev => ({
+          ...prev,
+          ...data,
+          lunch_break_after: data.lunch_break_after !== undefined ? data.lunch_break_after : prev.lunch_break_after,
+          periods_schedule: data.periods_schedule && data.periods_schedule.length > 0
+            ? data.periods_schedule
+            : prev.periods_schedule,
+        }));
+      }
     } catch (err) {
       console.error('Failed to fetch settings', err);
     } finally {
@@ -306,6 +116,121 @@ export function SettingsPage({ currentUser, theme = 'dark', onNavigateTimetable 
     } finally {
       setAuditLoading(false);
     }
+  }
+
+  function getSlotDurationMin(start: string, end: string): number {
+    if (!start || !end) return 0;
+    const [sh, sm] = start.split(':').map(Number);
+    const [eh, em] = end.split(':').map(Number);
+    const s = (sh || 0) * 60 + (sm || 0);
+    const e = (eh || 0) * 60 + (em || 0);
+    return e >= s ? e - s : (1440 - s + e);
+  }
+
+  function handleAutoGeneratePeriods(
+    startStr?: string,
+    durationMinVal?: number,
+    periodCountVal?: number,
+    breakAfterVal?: number,
+    breakMinVal?: number
+  ) {
+    const start = startStr || settings.campus_start_time || '08:30';
+    const dur = Number(durationMinVal !== undefined ? durationMinVal : settings.default_period_duration_minutes) || 50;
+    const count = Number(periodCountVal !== undefined ? periodCountVal : settings.periods_per_day) || 8;
+    const brkAfter = breakAfterVal !== undefined
+      ? breakAfterVal
+      : (settings.lunch_break_after !== undefined ? settings.lunch_break_after : 3);
+    const brkMin = Number(breakMinVal !== undefined ? breakMinVal : settings.break_duration_minutes) || 30;
+
+    const [startH, startM] = start.split(':').map(Number);
+    let currentMin = (startH || 8) * 60 + (startM || 30);
+    const schedule: PeriodScheduleItem[] = [];
+
+    for (let i = 0; i < count; i++) {
+      if (i === brkAfter && brkMin > 0) {
+        currentMin += brkMin;
+      }
+
+      const sH = String(Math.floor(currentMin / 60) % 24).padStart(2, '0');
+      const sM = String(currentMin % 60).padStart(2, '0');
+
+      const endMin = currentMin + dur;
+      const eH = String(Math.floor(endMin / 60) % 24).padStart(2, '0');
+      const eM = String(endMin % 60).padStart(2, '0');
+
+      schedule.push({
+        p: i,
+        label: `P${i + 1}`,
+        start_time: `${sH}:${sM}`,
+        end_time: `${eH}:${eM}`,
+        is_break: false,
+      });
+
+      currentMin = endMin;
+    }
+
+    const lastEnd = schedule.length > 0 ? schedule[schedule.length - 1].end_time : settings.campus_end_time;
+    setSettings(prev => ({
+      ...prev,
+      campus_start_time: start,
+      campus_end_time: lastEnd,
+      default_period_duration_minutes: dur,
+      periods_per_day: count,
+      break_duration_minutes: brkMin,
+      lunch_break_after: brkAfter,
+      periods_schedule: schedule,
+    }));
+  }
+
+  function handleUpdatePeriod(index: number, field: keyof PeriodScheduleItem, val: any) {
+    const current = [...(settings.periods_schedule || [])];
+    if (!current[index]) return;
+    current[index] = { ...current[index], [field]: val };
+    setSettings(prev => ({ ...prev, periods_schedule: current }));
+  }
+
+  function handleAddPeriod() {
+    const current = [...(settings.periods_schedule || [])];
+    const nextIdx = current.length;
+    let newStart = '15:40';
+    if (current.length > 0) {
+      newStart = current[current.length - 1].end_time || '15:40';
+    }
+    const [sH, sM] = newStart.split(':').map(Number);
+    const dur = Number(settings.default_period_duration_minutes) || 50;
+    const endMinutes = (sH || 15) * 60 + (sM || 0) + dur;
+    const eH = String(Math.floor(endMinutes / 60) % 24).padStart(2, '0');
+    const eM = String(endMinutes % 60).padStart(2, '0');
+
+    current.push({
+      p: nextIdx,
+      label: `P${nextIdx + 1}`,
+      start_time: newStart,
+      end_time: `${eH}:${eM}`,
+      is_break: false,
+    });
+
+    setSettings(prev => ({
+      ...prev,
+      periods_per_day: current.length,
+      campus_end_time: `${eH}:${eM}`,
+      periods_schedule: current,
+    }));
+  }
+
+  function handleDeletePeriod(index: number) {
+    if ((settings.periods_schedule || []).length <= 2) {
+      alert('The institution must have at least 2 lecture periods scheduled.');
+      return;
+    }
+    const current = [...(settings.periods_schedule || [])];
+    current.splice(index, 1);
+    const reindexed = current.map((p, idx) => ({ ...p, p: idx }));
+    setSettings(prev => ({
+      ...prev,
+      periods_per_day: reindexed.length,
+      periods_schedule: reindexed,
+    }));
   }
 
   async function handleCreateUser(e: React.FormEvent) {
@@ -389,17 +314,21 @@ export function SettingsPage({ currentUser, theme = 'dark', onNavigateTimetable 
     }
   }
 
-  async function handleSaveSettings(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSaveSettings(e?: React.FormEvent) {
+    if (e) e.preventDefault();
     try {
       const res = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings),
       });
-      if (!res.ok) throw new Error('Failed to save settings');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || data.message || 'Failed to save settings');
       setSettingsSaveSuccess(true);
       setTimeout(() => setSettingsSaveSuccess(false), 3000);
+      if (onSettingsSaved) {
+        onSettingsSaved(settings);
+      }
       await fetchAuditLogs();
     } catch (err: any) {
       alert(err.message);
@@ -412,19 +341,40 @@ export function SettingsPage({ currentUser, theme = 'dark', onNavigateTimetable 
         case 'ADMIN': return 'bg-purple-100 text-purple-800 border-purple-200';
         case 'COORDINATOR': return 'bg-blue-100 text-blue-800 border-blue-200';
         case 'FACULTY': return 'bg-emerald-100 text-emerald-800 border-emerald-200';
-        case 'STUDENT': return 'bg-amber-100 text-amber-800 border-amber-200';
       }
     } else {
       switch (role) {
         case 'ADMIN': return 'bg-purple-950/70 text-purple-300 border-purple-500/40';
         case 'COORDINATOR': return 'bg-blue-950/70 text-blue-300 border-blue-500/40';
         case 'FACULTY': return 'bg-emerald-950/70 text-emerald-300 border-emerald-500/40';
-        case 'STUDENT': return 'bg-amber-950/70 text-amber-300 border-amber-500/40';
       }
     }
   }
 
-  const isRestricted = currentUser.role !== 'ADMIN';
+  if (currentUser.role !== 'ADMIN') {
+    return (
+      <div className={`flex-1 flex flex-col items-center justify-center p-8 text-center space-y-4 ${
+        isDark ? 'text-slate-300' : 'text-slate-700'
+      }`}>
+        <div className="w-16 h-16 rounded-3xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center">
+          <Lock className="w-8 h-8" />
+        </div>
+        <div className="space-y-1 max-w-md">
+          <h2 className={`text-xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            Administrator Authorization Required
+          </h2>
+          <p className="text-xs text-slate-400">
+            System Settings, User Management, and Cloud Database Configurations are restricted exclusively to Super Administrators. Timetable Coordinators manage schedule operations in Curriculum and Input Studio.
+          </p>
+        </div>
+        <div className="text-xs font-semibold px-3 py-1 rounded-full bg-slate-800 text-slate-300">
+          Your Role: {currentUser.role}
+        </div>
+      </div>
+    );
+  }
+
+  const isRestricted = false;
 
   return (
     <div className={`flex-1 overflow-y-auto p-6 md:p-8 space-y-6 transition-colors ${
@@ -444,7 +394,7 @@ export function SettingsPage({ currentUser, theme = 'dark', onNavigateTimetable 
             <span>Administration & System Settings</span>
           </h2>
           <p className={`text-xs mt-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-            Manage users, role permissions, institutional parameters, and database integration.
+            Manage users, institutional parameters, customizable lecture timings, and database synchronization.
           </p>
         </div>
 
@@ -467,14 +417,12 @@ export function SettingsPage({ currentUser, theme = 'dark', onNavigateTimetable 
         </div>
       )}
 
-      {/* Tabs Header */}
+      {/* Tabs Header - ROLES removed, strictly configured in codebase */}
       <div className={`flex items-center gap-2 overflow-x-auto pb-2 border-b ${
         isDark ? 'border-slate-800/80' : 'border-slate-200'
       }`}>
         {[
-          { id: 'COURSES', label: 'Courses & Room Engine', icon: GraduationCap },
           { id: 'USERS', label: 'Users & Accounts', icon: Users },
-          { id: 'ROLES', label: 'Role Permissions Matrix', icon: Shield },
           { id: 'INSTITUTION', label: 'Institution & Term', icon: Building2 },
           { id: 'SUPABASE', label: 'Supabase Cloud Sync', icon: Database },
           { id: 'AUDIT', label: 'System Audit Trail', icon: History },
@@ -499,466 +447,6 @@ export function SettingsPage({ currentUser, theme = 'dark', onNavigateTimetable 
           );
         })}
       </div>
-
-      {/* ========================================================================= */}
-      {/* TAB 0: COURSES & ROOM ALLOCATION ENGINE                                    */}
-      {/* ========================================================================= */}
-      {activeTab === 'COURSES' && (
-        <div className="space-y-6">
-          {/* Header Controls */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h3 className={`text-base font-black flex items-center gap-2.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                <div className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-400">
-                  <GraduationCap className="w-4 h-4" />
-                </div>
-                <span>Course Cohorts & Collision-Free Room Allocation Engine</span>
-                {coursesLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" />}
-              </h3>
-              <p className={`text-xs mt-1 max-w-2xl ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                Configure course cohorts (e.g. B.Tech 1st Year, B.Tech 2nd Year). The system analyzes student enrollment: when strength exceeds single-room capacity (75 seats), it automatically provisions parallel sections and auto-allots multiple collision-free rooms with guaranteed zero overlaps.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap">
-              <button
-                onClick={() => setRoomAuditView(!roomAuditView)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
-                  roomAuditView
-                    ? 'bg-purple-600 text-white border-purple-500 shadow-md shadow-purple-600/20'
-                    : isDark
-                      ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                      : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300 shadow-xs'
-                }`}
-              >
-                <DoorOpen className="w-3.5 h-3.5" />
-                <span>{roomAuditView ? 'Show Cohort Cards' : 'Audit Room Matrix'}</span>
-              </button>
-
-              {!isRestricted && (
-                <>
-                  <button
-                    onClick={() => {
-                      if (courses.length > 0 && !targetCourseId) {
-                        setTargetCourseId(courses[0].course_id);
-                      }
-                      setShowAddSubjectModal(true);
-                    }}
-                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-600/25 transition cursor-pointer"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
-                    <span>Enroll Subject with Course Matching</span>
-                  </button>
-
-                  <button
-                    onClick={() => setShowCreateCourseModal(true)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
-                      isDark ? 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-800' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300 shadow-xs'
-                    }`}
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>New Course Cohort</span>
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* Quick Metrics Strip */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className={`p-3.5 rounded-xl border transition ${
-              isDark ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white border-slate-200/90 shadow-xs'
-            }`}>
-              <div className="flex items-center justify-between text-xs">
-                <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>Course Cohorts</span>
-                <GraduationCap className="w-4 h-4 text-indigo-500" />
-              </div>
-              <div className={`text-lg font-black mt-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                {courses.length} Active
-              </div>
-              <p className={`text-[10px] mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                Year & semester cohorts
-              </p>
-            </div>
-
-            <div className={`p-3.5 rounded-xl border transition ${
-              isDark ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white border-slate-200/90 shadow-xs'
-            }`}>
-              <div className="flex items-center justify-between text-xs">
-                <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>Total Enrolled Students</span>
-                <Users2 className="w-4 h-4 text-blue-500" />
-              </div>
-              <div className={`text-lg font-black mt-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                {courses.reduce((acc, c) => acc + (c.student_count || 0), 0)} Students
-              </div>
-              <p className={`text-[10px] mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                Across all programs
-              </p>
-            </div>
-
-            <div className={`p-3.5 rounded-xl border transition ${
-              isDark ? 'bg-purple-950/20 border-purple-500/30' : 'bg-purple-50 border-purple-200'
-            }`}>
-              <div className="flex items-center justify-between text-xs">
-                <span className={isDark ? 'text-purple-300' : 'text-purple-700'}>Multi-Room Split Cohorts</span>
-                <Layers className="w-4 h-4 text-purple-500" />
-              </div>
-              <div className={`text-lg font-black mt-1 ${isDark ? 'text-purple-200' : 'text-purple-900'}`}>
-                {courses.filter(c => c.rooms_required > 1).length} Cohorts
-              </div>
-              <p className={`text-[10px] mt-0.5 ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>
-                Exceeding 75-cap per hall
-              </p>
-            </div>
-
-            <div className={`p-3.5 rounded-xl border transition ${
-              isDark ? 'bg-emerald-950/20 border-emerald-500/30' : 'bg-emerald-50 border-emerald-200'
-            }`}>
-              <div className="flex items-center justify-between text-xs">
-                <span className={isDark ? 'text-emerald-300' : 'text-emerald-700'}>Room Collision Status</span>
-                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-              </div>
-              <div className={`text-lg font-black mt-1 ${isDark ? 'text-emerald-200' : 'text-emerald-900'}`}>
-                0 Overlaps
-              </div>
-              <p className={`text-[10px] mt-0.5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
-                100% Conflict-Free Verified
-              </p>
-            </div>
-          </div>
-
-          {/* Search & Filter Bar */}
-          <div className="flex items-center gap-3">
-            <div className="relative flex-1 max-w-sm">
-              <input
-                type="text"
-                placeholder="Search course cohort (e.g. B.Tech 1st Year, BCA...)"
-                value={courseFilterSearch}
-                onChange={(e) => setCourseFilterSearch(e.target.value)}
-                className={`w-full rounded-xl pl-9 pr-3 py-2 text-xs transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                  isDark ? 'bg-slate-900/60 border-slate-800 text-white placeholder-slate-500' : 'bg-white border-slate-300 text-slate-900 placeholder-slate-400 shadow-xs'
-                }`}
-              />
-              <ListFilter className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
-            </div>
-          </div>
-
-          {/* VIEW A: ROOM ALLOCATION AUDIT MATRIX VIEW */}
-          {roomAuditView ? (
-            <div className={`border rounded-2xl overflow-hidden shadow-xl transition ${
-              isDark ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white border-slate-200/90 shadow-xs'
-            }`}>
-              <div className={`p-4 border-b flex items-center justify-between ${
-                isDark ? 'border-slate-800 bg-slate-950/50' : 'border-slate-200 bg-slate-50/70'
-              }`}>
-                <div>
-                  <h4 className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-                    Campus Room & Lecture Hall Allocation Matrix (Collision Audit)
-                  </h4>
-                  <p className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                    Live tracking of all classrooms, capacity limits, and course cohort allotments with zero collision verification.
-                  </p>
-                </div>
-                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
-                  isDark ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                }`}>
-                  0 OVERLAPS DETECTED
-                </span>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className={`border-b uppercase text-[10px] font-bold ${
-                    isDark ? 'bg-slate-950/80 text-slate-400 border-slate-800' : 'bg-slate-50 text-slate-600 border-slate-200'
-                  }`}>
-                    <tr>
-                      <th className="p-3.5">Hall Code & Name</th>
-                      <th className="p-3.5">Max Seating Capacity</th>
-                      <th className="p-3.5">Room Type</th>
-                      <th className="p-3.5">Allotted Course Cohorts</th>
-                      <th className="p-3.5">Weekly Scheduled Slots</th>
-                      <th className="p-3.5">Utilization</th>
-                      <th className="p-3.5 text-right">Collision Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className={`divide-y ${isDark ? 'divide-slate-800/80' : 'divide-slate-200'}`}>
-                    {roomAudits.map((r) => (
-                      <tr key={r.room_id} className={`transition ${isDark ? 'hover:bg-slate-800/30' : 'hover:bg-slate-50/80'}`}>
-                        <td className="p-3.5 font-bold">
-                          <div className={isDark ? 'text-white' : 'text-slate-900'}>{r.room_name}</div>
-                          <div className="text-[10px] font-mono text-indigo-400">{r.room_id}</div>
-                        </td>
-                        <td className="p-3.5">
-                          <span className={`px-2 py-0.5 rounded-md font-mono text-[11px] font-bold border ${
-                            r.capacity >= 75
-                              ? isDark ? 'bg-indigo-950/60 border-indigo-500/30 text-indigo-300' : 'bg-indigo-50 border-indigo-200 text-indigo-800'
-                              : isDark ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
-                          }`}>
-                            {r.capacity} seats
-                          </span>
-                        </td>
-                        <td className="p-3.5">
-                          <span className="text-[11px] font-semibold text-slate-400">{r.room_type_id}</span>
-                        </td>
-                        <td className="p-3.5">
-                          <div className="flex flex-wrap gap-1">
-                            {r.assigned_cohorts && r.assigned_cohorts.length > 0 ? (
-                              r.assigned_cohorts.map((cohortName, idx) => (
-                                <span key={idx} className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold border ${
-                                  isDark ? 'bg-purple-950/40 border-purple-500/30 text-purple-300' : 'bg-purple-50 border-purple-200 text-purple-800'
-                                }`}>
-                                  {cohortName}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-[10px] text-slate-500 italic">Available pool</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="p-3.5 font-mono text-xs">
-                          {r.scheduled_slots_count} slots / week
-                        </td>
-                        <td className="p-3.5">
-                          <div className="w-24">
-                            <div className="flex items-center justify-between text-[10px] mb-1">
-                              <span>{r.occupancy_rate_pct}%</span>
-                            </div>
-                            <div className="w-full h-1.5 rounded-full bg-slate-700/50 overflow-hidden">
-                              <div
-                                className={`h-full rounded-full ${
-                                  r.occupancy_rate_pct > 80 ? 'bg-amber-500' : 'bg-emerald-500'
-                                }`}
-                                style={{ width: `${Math.min(100, r.occupancy_rate_pct)}%` }}
-                              />
-                            </div>
-                          </div>
-                        </td>
-                        <td className="p-3.5 text-right">
-                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
-                            r.is_collision_free
-                              ? isDark ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                              : 'bg-rose-950/40 border-rose-500/40 text-rose-300'
-                          }`}>
-                            <CheckCircle className="w-3 h-3 text-emerald-500" />
-                            <span>0 Overlaps</span>
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : (
-            /* VIEW B: COURSE COHORT CARDS GRID */
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {courses
-                .filter(c =>
-                  !courseFilterSearch ||
-                  c.course_name.toLowerCase().includes(courseFilterSearch.toLowerCase()) ||
-                  c.department.toLowerCase().includes(courseFilterSearch.toLowerCase()) ||
-                  c.course_id.toLowerCase().includes(courseFilterSearch.toLowerCase())
-                )
-                .map((cohort) => {
-                  const needsMultipleRooms = cohort.rooms_required > 1;
-                  return (
-                    <div
-                      key={cohort.course_id}
-                      className={`border rounded-2xl p-4.5 space-y-4 transition flex flex-col justify-between shadow-xl ${
-                        isDark ? 'bg-slate-900/60 border-slate-800/80 hover:border-slate-700' : 'bg-white border-slate-200/90 shadow-xs hover:border-slate-300'
-                      }`}
-                    >
-                      {/* Card Header */}
-                      <div className="space-y-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="space-y-0.5">
-                            <div className="flex items-center gap-1.5">
-                              <h4 className={`text-sm font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                                {cohort.course_name}
-                              </h4>
-                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-                                {cohort.course_id}
-                              </span>
-                            </div>
-                            <p className={`text-[11px] font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                              {cohort.department}
-                            </p>
-                          </div>
-
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase ${
-                            isDark ? 'bg-indigo-950/40 border-indigo-500/30 text-indigo-300' : 'bg-indigo-50 border-indigo-200 text-indigo-800'
-                          }`}>
-                            Year {cohort.year} • Sem {cohort.semester}
-                          </span>
-                        </div>
-
-                        {/* Student Count Row */}
-                        <div className={`p-2.5 rounded-xl border flex items-center justify-between ${
-                          isDark ? 'bg-slate-950/50 border-slate-800/80' : 'bg-slate-50/80 border-slate-200'
-                        }`}>
-                          <div className="flex items-center gap-2">
-                            <Users className="w-4 h-4 text-blue-400" />
-                            <div>
-                              <span className={`text-xs font-bold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
-                                {cohort.student_count} Enrolled Students
-                              </span>
-                              <div className={`text-[10px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-                                Hall cap: {cohort.max_capacity_per_room || 75} seats
-                              </div>
-                            </div>
-                          </div>
-
-                          {!isRestricted && (
-                            <button
-                              onClick={() => {
-                                setEditingStudentCountCourse(cohort);
-                                setNewStudentCountValue(cohort.student_count);
-                              }}
-                              className={`p-1.5 rounded-lg border text-[10px] font-semibold flex items-center gap-1 transition cursor-pointer ${
-                                isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
-                              }`}
-                              title="Update student strength & auto-recompute rooms"
-                            >
-                              <Edit3 className="w-3 h-3 text-indigo-400" />
-                              <span>Edit</span>
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Room Allocation Status Banner */}
-                        <div className={`p-2.5 rounded-xl border space-y-1.5 ${
-                          needsMultipleRooms
-                            ? isDark ? 'bg-purple-950/30 border-purple-500/40' : 'bg-purple-50 border-purple-200'
-                            : isDark ? 'bg-indigo-950/20 border-indigo-500/30' : 'bg-indigo-50/60 border-indigo-200/80'
-                        }`}>
-                          <div className="flex items-center justify-between text-xs">
-                            <span className={`font-bold flex items-center gap-1.5 ${
-                              needsMultipleRooms
-                                ? isDark ? 'text-purple-300' : 'text-purple-800'
-                                : isDark ? 'text-indigo-300' : 'text-indigo-800'
-                            }`}>
-                              {needsMultipleRooms ? (
-                                <>
-                                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                                  <span>⚡ {cohort.rooms_required} Rooms Auto-Allocated</span>
-                                </>
-                              ) : (
-                                <>
-                                  <DoorOpen className="w-3.5 h-3.5 text-indigo-400" />
-                                  <span>🏛️ 1 Room Sufficient</span>
-                                </>
-                              )}
-                            </span>
-                            <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-0.5">
-                              <CheckCircle className="w-3 h-3 text-emerald-500" />
-                              0 Overlaps
-                            </span>
-                          </div>
-
-                          {/* Section Breakdown Pills */}
-                          <div className="space-y-1">
-                            {cohort.sections && cohort.sections.map((sec, idx) => (
-                              <div
-                                key={idx}
-                                className={`text-[10px] p-1.5 rounded-lg border flex items-center justify-between ${
-                                  isDark ? 'bg-slate-900/80 border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
-                                }`}
-                              >
-                                <span className="font-bold text-indigo-400">{sec.section_name} ({sec.students} sts):</span>
-                                <span className="font-semibold truncate max-w-[170px]" title={sec.room_name}>
-                                  🏛️ {sec.room_name}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Enrolled Subjects under this Course */}
-                        <div className="space-y-1.5 pt-1">
-                          <div className="flex items-center justify-between text-[11px]">
-                            <span className={`font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-                              Enrolled Subjects ({cohort.subjects?.length || 0})
-                            </span>
-                            {!isRestricted && (
-                              <button
-                                onClick={() => {
-                                  setTargetCourseId(cohort.course_id);
-                                  setShowAddSubjectModal(true);
-                                }}
-                                className="text-[10px] font-semibold text-indigo-400 hover:text-indigo-300 cursor-pointer flex items-center gap-1"
-                              >
-                                <Plus className="w-3 h-3" />
-                                <span>Add Subject</span>
-                              </button>
-                            )}
-                          </div>
-
-                          <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
-                            {cohort.subjects && cohort.subjects.length > 0 ? (
-                              cohort.subjects.map((s, idx) => (
-                                <div
-                                  key={idx}
-                                  className={`text-[10px] px-2 py-1 rounded-lg border flex items-center gap-1 ${
-                                    isDark ? 'bg-slate-950/70 border-slate-800/80 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
-                                  }`}
-                                  title={`${s.subject_name} (${s.credits} Credits • ${s.sessions_per_week} sess/wk)`}
-                                >
-                                  <BookOpen className="w-3 h-3 text-indigo-400 shrink-0" />
-                                  <span className="font-mono font-bold">{s.subject_code}:</span>
-                                  <span className="truncate max-w-[130px]">{s.subject_name}</span>
-                                </div>
-                              ))
-                            ) : (
-                              <div className={`text-[10px] italic p-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-                                No subjects mapped yet. Click "+ Add Subject" to enroll.
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Card Footer */}
-                      <div className={`pt-3 border-t flex items-center justify-between text-[11px] ${
-                        isDark ? 'border-slate-800' : 'border-slate-200'
-                      }`}>
-                        <div className="flex items-center gap-2">
-                          <div className="flex items-center gap-1 text-[10px] text-slate-400">
-                            <Clock className="w-3 h-3 text-indigo-400" />
-                            <span>{cohort.active_placements_count || 0} active placements</span>
-                          </div>
-                          {onNavigateTimetable && (
-                            <button
-                              onClick={() => onNavigateTimetable(cohort.program_id, cohort.course_id)}
-                              className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition flex items-center gap-1 cursor-pointer ${
-                                isDark
-                                  ? 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
-                                  : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
-                              }`}
-                              title={`View Timetable for ${cohort.course_name}`}
-                            >
-                              <Calendar className="w-3 h-3 text-indigo-400" />
-                              <span>View Timetable &rarr;</span>
-                            </button>
-                          )}
-                        </div>
-
-                        {!isRestricted && (
-                          <button
-                            onClick={() => handleDeleteCourse(cohort.course_id, cohort.course_name)}
-                            className={`p-1.5 rounded-lg transition text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 cursor-pointer`}
-                            title="Delete course cohort"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* ========================================================================= */}
       {/* TAB 1: USERS & ACCOUNTS                                                   */}
@@ -1024,7 +512,6 @@ export function SettingsPage({ currentUser, theme = 'dark', onNavigateTimetable 
                             <option value="ADMIN">ADMIN</option>
                             <option value="COORDINATOR">COORDINATOR</option>
                             <option value="FACULTY">FACULTY</option>
-                            <option value="STUDENT">STUDENT</option>
                           </select>
                         ) : (
                           <span className={`px-2 py-0.5 rounded border text-[11px] font-bold ${getRoleBadgeStyle(u.role)}`}>
@@ -1081,71 +568,11 @@ export function SettingsPage({ currentUser, theme = 'dark', onNavigateTimetable 
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 2: ROLE PERMISSIONS MATRIX                                            */}
-      {/* ========================================================================= */}
-      {activeTab === 'ROLES' && (
-        <div className="space-y-4">
-          <div>
-            <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>Role-Based Access Control (RBAC) Matrix</h3>
-            <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Configured operational privileges per higher education stakeholder tier</p>
-          </div>
-
-          <div className={`border rounded-2xl overflow-hidden shadow-xl transition ${
-            isDark ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white border-slate-200/90 shadow-xs'
-          }`}>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className={`border-b uppercase text-[10px] font-bold ${
-                  isDark ? 'bg-slate-950/80 text-slate-400 border-slate-800' : 'bg-slate-50 text-slate-600 border-slate-200'
-                }`}>
-                  <tr>
-                    <th className="p-3.5">Capability / Permission Code</th>
-                    <th className="p-3.5 text-center">Super Admin</th>
-                    <th className="p-3.5 text-center">Timetable Coordinator</th>
-                    <th className="p-3.5 text-center">Faculty / Reviewer</th>
-                    <th className="p-3.5 text-center">Student / Cohort</th>
-                  </tr>
-                </thead>
-                <tbody className={`divide-y ${isDark ? 'divide-slate-800/80 text-slate-300' : 'divide-slate-200 text-slate-700'}`}>
-                  {[
-                    { code: 'optimize:run', desc: 'Trigger CP-SAT Solver & Multi-Objective Profiles', admin: true, coord: true, fac: false, stud: false },
-                    { code: 'timetable:edit', desc: 'Interactive Drag-and-Drop Session Rescheduling', admin: true, coord: true, fac: false, stud: false },
-                    { code: 'data:manage', desc: 'Input Studio: Add/Remove Courses, Faculty, Rooms', admin: true, coord: true, fac: false, stud: false },
-                    { code: 'users:manage', desc: 'Create Accounts, Assign Roles, Deactivate Users', admin: true, coord: false, fac: false, stud: false },
-                    { code: 'settings:manage', desc: 'Configure Institution & Academic Parameters', admin: true, coord: false, fac: false, stud: false },
-                    { code: 'export:run', desc: 'Download Excel, CSV, Circulars & AMS JSON', admin: true, coord: true, fac: true, stud: true },
-                  ].map((row) => (
-                    <tr key={row.code} className={`transition ${isDark ? 'hover:bg-slate-800/30' : 'hover:bg-slate-50/80'}`}>
-                      <td className="p-3.5">
-                        <div className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{row.desc}</div>
-                        <div className={`font-mono text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{row.code}</div>
-                      </td>
-                      <td className="p-3.5 text-center">
-                        {row.admin ? <Check className="w-4 h-4 text-emerald-500 mx-auto" /> : <span className={isDark ? 'text-slate-600' : 'text-slate-400'}>—</span>}
-                      </td>
-                      <td className="p-3.5 text-center">
-                        {row.coord ? <Check className="w-4 h-4 text-emerald-500 mx-auto" /> : <span className={isDark ? 'text-slate-600' : 'text-slate-400'}>—</span>}
-                      </td>
-                      <td className="p-3.5 text-center">
-                        {row.fac ? <Check className="w-4 h-4 text-emerald-500 mx-auto" /> : <span className={isDark ? 'text-slate-600' : 'text-slate-400'}>—</span>}
-                      </td>
-                      <td className="p-3.5 text-center">
-                        {row.stud ? <Check className="w-4 h-4 text-emerald-500 mx-auto" /> : <span className={isDark ? 'text-slate-600' : 'text-slate-400'}>—</span>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* TAB 3: INSTITUTION & ACADEMIC PARAMETERS                                   */}
+      {/* TAB 2: INSTITUTION & CUSTOMIZABLE LECTURE TIMES MATRIX                    */}
       {/* ========================================================================= */}
       {activeTab === 'INSTITUTION' && (
-        <form onSubmit={handleSaveSettings} className="space-y-5 max-w-3xl">
+        <form onSubmit={handleSaveSettings} className="space-y-6 max-w-4xl">
+          {/* Card 1: Institution Profile & Framework */}
           <div className={`border rounded-2xl p-6 shadow-xl space-y-5 transition ${
             isDark ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white border-slate-200/90 shadow-xs'
           }`}>
@@ -1219,24 +646,8 @@ export function SettingsPage({ currentUser, theme = 'dark', onNavigateTimetable 
               </div>
 
               <div className="space-y-1.5">
-                <label className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Periods Per Day</label>
-                <select
-                  value={settings.periods_per_day}
-                  onChange={(e) => setSettings({ ...settings, periods_per_day: parseInt(e.target.value) })}
-                  disabled={isRestricted}
-                  className={`w-full rounded-xl px-3.5 py-2.5 text-xs transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50 cursor-pointer ${
-                    isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                  }`}
-                >
-                  <option value={6}>6 Periods (60 mins each)</option>
-                  <option value={7}>7 Periods (Full Standard Schedule)</option>
-                  <option value={8}>8 Periods (Extended Lab Shifts)</option>
-                </select>
-              </div>
-
-              <div className="space-y-1.5 md:col-span-2">
                 <label className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-                  Practicum, Field Work & Internship Duration (weeks)
+                  Practicum & Internship Duration (weeks)
                 </label>
                 <input
                   type="number"
@@ -1247,27 +658,279 @@ export function SettingsPage({ currentUser, theme = 'dark', onNavigateTimetable 
                     isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
                   }`}
                 />
-                <span className={`text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                  Off-campus field engagement reserved outside regular lecture hours.
-                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 2: Customizable Lecture Schedule & Period Generator */}
+          <div className={`border rounded-2xl p-6 shadow-xl space-y-6 transition ${
+            isDark ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white border-slate-200/90 shadow-xs'
+          }`}>
+            <div className={`border-b pb-3 flex flex-wrap items-center justify-between gap-3 ${
+              isDark ? 'border-slate-800' : 'border-slate-200'
+            }`}>
+              <div className="flex items-center gap-2">
+                <div className={`p-1.5 rounded-lg ${isDark ? 'bg-indigo-500/10 text-indigo-400' : 'bg-indigo-50 text-indigo-600'}`}>
+                  <Clock className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    Customizable Lecture Timetable Schedule & Hours
+                  </h3>
+                  <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                    Configure institution-wide lecture start times, durations, recess intervals, and period slots.
+                  </p>
+                </div>
+              </div>
+
+              {/* Quick Preset Buttons */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleAutoGeneratePeriods('08:30', 50, 8, 3, 30)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition border cursor-pointer ${
+                    isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                  }`}
+                >
+                  Preset 8-Slot (50m)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAutoGeneratePeriods('09:00', 60, 6, 3, 45)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition border cursor-pointer ${
+                    isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                  }`}
+                >
+                  Preset 6-Slot (60m)
+                </button>
               </div>
             </div>
 
+            {/* Quick Generator Parameters */}
+            <div className={`p-4 rounded-xl border grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 ${
+              isDark ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50 border-slate-200'
+            }`}>
+              <div className="space-y-1">
+                <label className={`text-[11px] font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'} flex items-center gap-1.5`}>
+                  <Clock className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Campus Day Starts At</span>
+                </label>
+                <input
+                  type="time"
+                  value={settings.campus_start_time || '08:30'}
+                  onChange={(e) => setSettings({ ...settings, campus_start_time: e.target.value })}
+                  className={`w-full rounded-lg px-3 py-1.5 text-xs font-mono font-bold transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                    isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className={`text-[11px] font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'} flex items-center gap-1.5`}>
+                  <span>Lecture Duration (mins)</span>
+                </label>
+                <input
+                  type="number"
+                  min={30}
+                  max={120}
+                  step={5}
+                  value={settings.default_period_duration_minutes || 50}
+                  onChange={(e) => setSettings({ ...settings, default_period_duration_minutes: parseInt(e.target.value) || 50 })}
+                  className={`w-full rounded-lg px-3 py-1.5 text-xs font-mono font-bold transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                    isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className={`text-[11px] font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'} flex items-center gap-1.5`}>
+                  <span>Recess After Period</span>
+                </label>
+                <select
+                  value={settings.lunch_break_after ?? 3}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value);
+                    setSettings(prev => ({ ...prev, lunch_break_after: val }));
+                    handleAutoGeneratePeriods(undefined, undefined, undefined, val, undefined);
+                  }}
+                  className={`w-full rounded-lg px-3 py-1.5 text-xs font-bold transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
+                    isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                  }`}
+                >
+                  <option value={2}>After P2 (Morning Recess)</option>
+                  <option value={3}>After P3 (Standard Lunch)</option>
+                  <option value={4}>After P4 (Late Lunch)</option>
+                  <option value={-1}>No Mid-Day Break</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className={`text-[11px] font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'} flex items-center gap-1.5`}>
+                  <span>Recess Duration (mins)</span>
+                </label>
+                <input
+                  type="number"
+                  min={10}
+                  max={90}
+                  step={5}
+                  value={settings.break_duration_minutes || 30}
+                  onChange={(e) => setSettings({ ...settings, break_duration_minutes: parseInt(e.target.value) || 30 })}
+                  className={`w-full rounded-lg px-3 py-1.5 text-xs font-mono font-bold transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                    isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div className="col-span-full pt-1 flex items-center justify-between">
+                <span className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                  Auto-calculation computes sequential slot intervals based on start time, lecture duration, and recess buffer.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleAutoGeneratePeriods()}
+                  className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Auto-Calculate Periods</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Granular Period Table */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                  Configured Daily Period Slots ({(settings.periods_schedule || []).length} Slots)
+                </h4>
+                <button
+                  type="button"
+                  onClick={handleAddPeriod}
+                  className="flex items-center gap-1 text-xs font-bold text-indigo-400 hover:text-indigo-300 transition cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Lecture Slot</span>
+                </button>
+              </div>
+
+              <div className={`border rounded-xl overflow-hidden ${
+                isDark ? 'border-slate-800 bg-slate-950/40' : 'border-slate-200 bg-slate-50'
+              }`}>
+                <table className="w-full text-left text-xs">
+                  <thead className={`border-b uppercase text-[10px] font-bold ${
+                    isDark ? 'bg-slate-950 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-600 border-slate-200'
+                  }`}>
+                    <tr>
+                      <th className="p-3 w-16 text-center">Slot</th>
+                      <th className="p-3">Period Label</th>
+                      <th className="p-3">Start Time</th>
+                      <th className="p-3">End Time</th>
+                      <th className="p-3 text-center">Duration</th>
+                      <th className="p-3 text-center">Type</th>
+                      <th className="p-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className={`divide-y ${isDark ? 'divide-slate-800/80' : 'divide-slate-200'}`}>
+                    {(settings.periods_schedule || []).map((period, idx) => {
+                      const dur = getSlotDurationMin(period.start_time, period.end_time);
+                      return (
+                        <tr key={idx} className={`transition ${isDark ? 'hover:bg-slate-800/20' : 'hover:bg-slate-100/50'}`}>
+                          <td className="p-3 text-center font-mono font-bold text-indigo-400">
+                            P{period.p + 1}
+                          </td>
+                          <td className="p-3">
+                            <input
+                              type="text"
+                              value={period.label}
+                              onChange={(e) => handleUpdatePeriod(idx, 'label', e.target.value)}
+                              placeholder={`Period ${period.p + 1}`}
+                              className={`w-32 rounded-lg px-2.5 py-1 text-xs font-bold border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                                isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                              }`}
+                            />
+                          </td>
+                          <td className="p-3">
+                            <input
+                              type="time"
+                              value={period.start_time}
+                              onChange={(e) => handleUpdatePeriod(idx, 'start_time', e.target.value)}
+                              className={`rounded-lg px-2 py-1 text-xs font-mono font-bold border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                                isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                              }`}
+                            />
+                          </td>
+                          <td className="p-3">
+                            <input
+                              type="time"
+                              value={period.end_time}
+                              onChange={(e) => handleUpdatePeriod(idx, 'end_time', e.target.value)}
+                              className={`rounded-lg px-2 py-1 text-xs font-mono font-bold border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                                isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                              }`}
+                            />
+                          </td>
+                          <td className="p-3 text-center">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${
+                              dur === (settings.default_period_duration_minutes || 50)
+                                ? isDark ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                : isDark ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-amber-50 border-amber-200 text-amber-700'
+                            }`}>
+                              {dur} min
+                            </span>
+                          </td>
+                          <td className="p-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleUpdatePeriod(idx, 'is_break', !period.is_break)}
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold transition border cursor-pointer ${
+                                period.is_break
+                                  ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+                                  : isDark ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-slate-200 border-slate-300 text-slate-700'
+                              }`}
+                            >
+                              {period.is_break ? 'Recess / Break' : 'Class Lecture'}
+                            </button>
+                          </td>
+                          <td className="p-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleDeletePeriod(idx)}
+                              title="Delete Period"
+                              className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                                isDark ? 'bg-rose-950/40 hover:bg-rose-900/60 border-rose-500/30 text-rose-300' : 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-700'
+                              }`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Save Action Footer */}
             {!isRestricted && (
-              <div className={`pt-3 border-t flex items-center justify-between ${
+              <div className={`pt-4 border-t flex flex-wrap items-center justify-between gap-3 ${
                 isDark ? 'border-slate-800' : 'border-slate-200'
               }`}>
-                {settingsSaveSuccess && (
-                  <span className="text-xs font-semibold text-emerald-500 flex items-center gap-1.5">
+                {settingsSaveSuccess ? (
+                  <span className="text-xs font-semibold text-emerald-500 flex items-center gap-1.5 animate-in fade-in">
                     <CheckCircle2 className="w-4 h-4" />
-                    Settings saved successfully!
+                    <span>Lecture timetable timings & institution settings saved successfully!</span>
+                  </span>
+                ) : (
+                  <span className={`text-[11px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                    Timetable schedule matrix dynamically reflects your configured lecture start and end times.
                   </span>
                 )}
                 <button
                   type="submit"
-                  className="ml-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer"
+                  className="ml-auto px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-600/30 transition cursor-pointer flex items-center gap-2"
                 >
-                  Save Configuration
+                  <Check className="w-4 h-4" />
+                  <span>Save Academic & Lecture Configuration</span>
                 </button>
               </div>
             )}
@@ -1276,7 +939,7 @@ export function SettingsPage({ currentUser, theme = 'dark', onNavigateTimetable 
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 4: SUPABASE CLOUD SYNC                                                */}
+      {/* TAB 3: SUPABASE CLOUD SYNC                                                */}
       {/* ========================================================================= */}
       {activeTab === 'SUPABASE' && (
         <div className="space-y-5 max-w-3xl">
@@ -1362,7 +1025,7 @@ export function SettingsPage({ currentUser, theme = 'dark', onNavigateTimetable 
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 5: SYSTEM AUDIT TRAIL                                                 */}
+      {/* TAB 4: SYSTEM AUDIT TRAIL                                                 */}
       {/* ========================================================================= */}
       {activeTab === 'AUDIT' && (
         <div className="space-y-4">
@@ -1408,7 +1071,7 @@ export function SettingsPage({ currentUser, theme = 'dark', onNavigateTimetable 
                           {log.action}
                         </span>
                       </td>
-                      <td className={`p-3.5 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{log.details}</td>
+                      <td className={`p-3.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{log.details}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1418,648 +1081,104 @@ export function SettingsPage({ currentUser, theme = 'dark', onNavigateTimetable 
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* MODAL 1: ADD SUBJECT WITH COURSE MATCHING                                  */}
-      {/* ========================================================================= */}
-      {showAddSubjectModal && (() => {
-        const selectedCohort = courses.find(c => c.course_id === targetCourseId) || courses[0];
-        const studentCount = selectedCohort ? selectedCohort.student_count : 140;
-        const maxCap = selectedCohort ? (selectedCohort.max_capacity_per_room || 75) : 75;
-        const roomsCalc = Math.max(1, Math.ceil(studentCount / maxCap));
-        const isMultiRoom = roomsCalc > 1;
-
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
-            <div className={`border rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto transition ${
-              isDark ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
-            }`}>
-              <div className={`flex items-center justify-between border-b pb-3 ${
-                isDark ? 'border-slate-800' : 'border-slate-200'
-              }`}>
-                <h3 className={`text-sm font-bold flex items-center gap-2 ${
-                  isDark ? 'text-white' : 'text-slate-900'
-                }`}>
-                  <Sparkles className="w-4 h-4 text-amber-400" />
-                  <span>Enroll Subject & Match to Course Cohort</span>
-                </h3>
-                <button
-                  onClick={() => setShowAddSubjectModal(false)}
-                  className={`p-1 rounded-lg transition cursor-pointer ${
-                    isDark ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-900'
-                  }`}
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <form onSubmit={handleAddSubjectToCourse} className="space-y-4">
-                {/* 1. SELECT TARGET COURSE COHORT */}
-                <div className="space-y-1.5">
-                  <label className={`text-xs font-bold flex items-center gap-1.5 ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
-                    <GraduationCap className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>Select Matching Course Cohort</span>
-                  </label>
-                  <select
-                    value={targetCourseId}
-                    onChange={(e) => setTargetCourseId(e.target.value)}
-                    className={`w-full rounded-xl px-3.5 py-2.5 text-xs transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold cursor-pointer ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
-                  >
-                    {courses.map((c) => (
-                      <option key={c.course_id} value={c.course_id}>
-                        {c.course_name} — {c.student_count} Students ({c.rooms_required} Room{c.rooms_required > 1 ? 's' : ''} Needed) • {c.department}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* 2. DYNAMIC COURSE INTELLIGENCE & ROOM ALLOCATION PREVIEW */}
-                {selectedCohort && (
-                  <div className={`p-3.5 rounded-xl border space-y-2.5 transition ${
-                    isMultiRoom
-                      ? isDark ? 'bg-purple-950/30 border-purple-500/40' : 'bg-purple-50 border-purple-200'
-                      : isDark ? 'bg-indigo-950/30 border-indigo-500/30' : 'bg-indigo-50 border-indigo-200'
-                  }`}>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className={`font-bold flex items-center gap-1.5 ${isMultiRoom ? 'text-purple-300' : 'text-indigo-400'}`}>
-                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Dynamic Room & Section Allocation Intelligence</span>
-                      </span>
-                      <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1">
-                        <CheckCircle className="w-3 h-3 text-emerald-500" />
-                        Zero Overlaps Guaranteed
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className={`p-2 rounded-lg border ${
-                        isDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'
-                      }`}>
-                        <div className="text-[10px] text-slate-400">Target Cohort</div>
-                        <div className="font-bold text-white text-[11px] truncate">{selectedCohort.course_name}</div>
-                        <div className="text-[10px] text-slate-400">{selectedCohort.department}</div>
-                      </div>
-
-                      <div className={`p-2 rounded-lg border ${
-                        isDark ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-200'
-                      }`}>
-                        <div className="text-[10px] text-slate-400">Enrollment vs Hall Cap</div>
-                        <div className="font-bold text-white text-[11px]">
-                          {studentCount} Students / {maxCap} Max Seats
-                        </div>
-                        <div className={`text-[10px] font-semibold ${isMultiRoom ? 'text-purple-400' : 'text-emerald-400'}`}>
-                          {isMultiRoom ? `⚡ Exceeds single hall ➔ ${roomsCalc} Halls Needed` : '✓ Fits in 1 Lecture Hall'}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Allocated Rooms Preview */}
-                    <div className="space-y-1">
-                      <div className="text-[10px] font-semibold uppercase text-slate-400">
-                        Auto-Allotted Non-Overlapping Rooms ({roomsCalc} Room{roomsCalc > 1 ? 's' : ''}):
-                      </div>
-                      <div className="space-y-1">
-                        {selectedCohort.sections && selectedCohort.sections.map((sec, idx) => (
-                          <div
-                            key={idx}
-                            className={`p-1.5 rounded-lg border text-[11px] flex items-center justify-between font-mono ${
-                              isDark ? 'bg-slate-950/70 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
-                            }`}
-                          >
-                            <span className="text-indigo-400 font-bold">{sec.section_name} ({sec.students} students):</span>
-                            <span className="text-emerald-400 font-semibold">🏛️ {sec.room_name} ({sec.capacity} seats)</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <p className={`text-[10px] ${isDark ? 'text-purple-300/80' : 'text-purple-900/80'}`}>
-                      🛡️ <strong>CP-SAT Solver Protection:</strong> Neither room nor student cohort will ever be double-booked in the same time slot (CON-H-001 & CON-H-002 constraints strictly satisfied).
-                    </p>
-                  </div>
-                )}
-
-                {/* 3. SUBJECT DETAILS */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-                      Subject Name *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Engineering Mathematics - 1"
-                      value={subName}
-                      onChange={(e) => setSubName(e.target.value)}
-                      className={`w-full rounded-xl px-3 py-2 text-xs transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                      }`}
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-                      Subject Code *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. MATH-101"
-                      value={subCode}
-                      onChange={(e) => setSubCode(e.target.value)}
-                      className={`w-full rounded-xl px-3 py-2 text-xs transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 uppercase font-mono ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                      }`}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="space-y-1">
-                    <label className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-                      Subject Type
-                    </label>
-                    <select
-                      value={subType}
-                      onChange={(e) => setSubType(e.target.value)}
-                      className={`w-full rounded-xl px-3 py-2 text-xs transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                      }`}
-                    >
-                      <option value="THEORY">THEORY (Lecture)</option>
-                      <option value="PRACTICAL">PRACTICAL (Lab)</option>
-                      <option value="TUTORIAL">TUTORIAL</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-                      Credits
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={10}
-                      value={subCredits}
-                      onChange={(e) => setSubCredits(Number(e.target.value))}
-                      className={`w-full rounded-xl px-3 py-2 text-xs transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                      }`}
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-                      Sessions / Week
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={7}
-                      value={subSessions}
-                      onChange={(e) => setSubSessions(Number(e.target.value))}
-                      className={`w-full rounded-xl px-3 py-2 text-xs transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                      }`}
-                    />
-                  </div>
-                </div>
-
-                <div className={`p-3 rounded-xl border flex items-center justify-between ${
-                  isDark ? 'bg-slate-950/40 border-slate-800' : 'bg-slate-50 border-slate-200'
-                }`}>
-                  <label className="flex items-center gap-2 cursor-pointer text-xs">
-                    <input
-                      type="checkbox"
-                      checked={subScheduleNow}
-                      onChange={(e) => setSubScheduleNow(e.target.checked)}
-                      className="rounded text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <span className="font-semibold">Optimize & Schedule Immediately into CP-SAT Timetable</span>
-                  </label>
-                  <span className="text-[10px] text-indigo-400 font-mono">0 Clashes Target</span>
-                </div>
-
-                <div className={`pt-3 flex justify-end gap-2 border-t ${
-                  isDark ? 'border-slate-800' : 'border-slate-200'
-                }`}>
-                  <button
-                    type="button"
-                    onClick={() => setShowAddSubjectModal(false)}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition border cursor-pointer ${
-                      isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                    }`}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={subSubmitLoading}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer"
-                  >
-                    {subSubmitLoading ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        <span>Allocating Rooms & Solving...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                        <span>Enroll Subject & Auto-Allocate Rooms</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* ========================================================================= */}
-      {/* MODAL 2: CREATE COURSE COHORT                                              */}
-      {/* ========================================================================= */}
-      {showCreateCourseModal && (() => {
-        const estRooms = Math.max(1, Math.ceil(newCStrength / 75));
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
-            <div className={`border rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 transition ${
-              isDark ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
-            }`}>
-              <div className={`flex items-center justify-between border-b pb-3 ${
-                isDark ? 'border-slate-800' : 'border-slate-200'
-              }`}>
-                <h3 className={`text-sm font-bold flex items-center gap-2 ${
-                  isDark ? 'text-white' : 'text-slate-900'
-                }`}>
-                  <GraduationCap className="w-4 h-4 text-indigo-500" />
-                  <span>Create New Course Cohort</span>
-                </h3>
-                <button
-                  onClick={() => setShowCreateCourseModal(false)}
-                  className={`p-1 rounded-lg transition cursor-pointer ${
-                    isDark ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-900'
-                  }`}
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <form onSubmit={handleCreateCourse} className="space-y-3">
-                <div className="space-y-1">
-                  <label className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-                    Course Name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. B.Tech 1st Year, M.Tech 1st Year"
-                    value={newCName}
-                    onChange={(e) => setNewCName(e.target.value)}
-                    className={`w-full rounded-xl px-3 py-2 text-xs transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Degree Program</label>
-                    <select
-                      value={newCProg}
-                      onChange={(e) => setNewCProg(e.target.value)}
-                      className={`w-full rounded-xl px-3 py-2 text-xs transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                      }`}
-                    >
-                      <option value="BTECH_CSE">B.Tech CSE</option>
-                      <option value="BTECH_ECE">B.Tech ECE</option>
-                      <option value="BCA">BCA (Applications)</option>
-                      <option value="MBA">MBA (Management)</option>
-                      <option value="BED">B.Ed (Education)</option>
-                      <option value="MTECH">M.Tech</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Academic Year</label>
-                    <select
-                      value={newCYear}
-                      onChange={(e) => {
-                        const y = Number(e.target.value);
-                        setNewCYear(y);
-                        setNewCSem((y * 2) - 1);
-                      }}
-                      className={`w-full rounded-xl px-3 py-2 text-xs transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                      }`}
-                    >
-                      <option value={1}>1st Year</option>
-                      <option value={2}>2nd Year</option>
-                      <option value={3}>3rd Year</option>
-                      <option value={4}>4th Year</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <label className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Department</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Department of Computer Science & Engineering"
-                    value={newCDept}
-                    onChange={(e) => setNewCDept(e.target.value)}
-                    className={`w-full rounded-xl px-3 py-2 text-xs transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-                      Student Enrollment *
-                    </label>
-                    <input
-                      type="number"
-                      required
-                      min={10}
-                      max={1000}
-                      value={newCStrength}
-                      onChange={(e) => setNewCStrength(Number(e.target.value))}
-                      className={`w-full rounded-xl px-3 py-2 text-xs transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                      }`}
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Preferred Room Type</label>
-                    <select
-                      value={newCRoomType}
-                      onChange={(e) => setNewCRoomType(e.target.value)}
-                      className={`w-full rounded-xl px-3 py-2 text-xs transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                      }`}
-                    >
-                      <option value="LECTURE_HALL">Lecture Hall (75 seats)</option>
-                      <option value="COMPUTER_LAB">Computer Lab (65 seats)</option>
-                      <option value="PEDAGOGY_ROOM">Pedagogy Room (60 seats)</option>
-                      <option value="SCIENCE_LAB">Science Lab (60 seats)</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Real-time Room Calculation Badge */}
-                <div className={`p-3 rounded-xl border text-xs space-y-1 ${
-                  estRooms > 1
-                    ? isDark ? 'bg-purple-950/40 border-purple-500/40 text-purple-200' : 'bg-purple-50 border-purple-200 text-purple-900'
-                    : isDark ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-200' : 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                }`}>
-                  <div className="font-bold flex items-center justify-between">
-                    <span>⚡ Room Requirement Preview:</span>
-                    <span className="font-mono">{estRooms} Room{estRooms > 1 ? 's' : ''} Needed</span>
-                  </div>
-                  <p className="text-[10px] opacity-80">
-                    {estRooms > 1
-                      ? `Enrollment (${newCStrength} students) exceeds standard room capacity (75 seats). The system will automatically create Section A & B with 2 dedicated halls.`
-                      : `Enrollment (${newCStrength} students) fits within a single room capacity.`}
-                  </p>
-                </div>
-
-                <div className={`pt-3 flex justify-end gap-2 border-t ${
-                  isDark ? 'border-slate-800' : 'border-slate-200'
-                }`}>
-                  <button
-                    type="button"
-                    onClick={() => setShowCreateCourseModal(false)}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition border cursor-pointer ${
-                      isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                    }`}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer"
-                  >
-                    Create Course Cohort
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* ========================================================================= */}
-      {/* MODAL 3: QUICK EDIT STUDENT ENROLLMENT & AUTO-RECOMPUTE ROOMS             */}
-      {/* ========================================================================= */}
-      {editingStudentCountCourse && (() => {
-        const currentReq = editingStudentCountCourse.rooms_required;
-        const newReq = Math.max(1, Math.ceil(newStudentCountValue / (editingStudentCountCourse.max_capacity_per_room || 75)));
-        const roomsChanged = currentReq !== newReq;
-
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
-            <div className={`border rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4 transition ${
-              isDark ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
-            }`}>
-              <div className={`flex items-center justify-between border-b pb-3 ${
-                isDark ? 'border-slate-800' : 'border-slate-200'
-              }`}>
-                <h3 className={`text-sm font-bold flex items-center gap-2 ${
-                  isDark ? 'text-white' : 'text-slate-900'
-                }`}>
-                  <Users className="w-4 h-4 text-indigo-400" />
-                  <span>Update Enrollment: {editingStudentCountCourse.course_name}</span>
-                </h3>
-                <button
-                  onClick={() => setEditingStudentCountCourse(null)}
-                  className={`p-1 rounded-lg transition cursor-pointer ${
-                    isDark ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-900'
-                  }`}
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                <div className="space-y-1">
-                  <label className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-                    Total Enrolled Students
-                  </label>
-                  <input
-                    type="number"
-                    min={10}
-                    max={1000}
-                    value={newStudentCountValue}
-                    onChange={(e) => setNewStudentCountValue(Number(e.target.value))}
-                    className={`w-full rounded-xl px-3.5 py-2.5 text-sm font-bold transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
-                  />
-                  <p className="text-[10px] text-slate-400">
-                    Max capacity per hall is {editingStudentCountCourse.max_capacity_per_room || 75} seats.
-                  </p>
-                </div>
-
-                {/* Calculation Delta */}
-                <div className={`p-3 rounded-xl border text-xs space-y-1 ${
-                  roomsChanged
-                    ? isDark ? 'bg-amber-950/40 border-amber-500/40 text-amber-200' : 'bg-amber-50 border-amber-200 text-amber-900'
-                    : isDark ? 'bg-slate-950 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
-                }`}>
-                  <div className="font-bold flex items-center justify-between">
-                    <span>Rooms Required:</span>
-                    <span className="font-mono text-sm">{newReq} Room{newReq > 1 ? 's' : ''}</span>
-                  </div>
-                  {roomsChanged && (
-                    <p className="text-[10px] text-amber-400 font-medium">
-                      ⚡ Dynamic Adjustment: Changing strength will automatically repartition into {newReq} parallel sections and assign collision-free rooms!
-                    </p>
-                  )}
-                </div>
-
-                <div className={`pt-3 flex justify-end gap-2 border-t ${
-                  isDark ? 'border-slate-800' : 'border-slate-200'
-                }`}>
-                  <button
-                    type="button"
-                    onClick={() => setEditingStudentCountCourse(null)}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition border cursor-pointer ${
-                      isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                    }`}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleUpdateStudentStrength(editingStudentCountCourse.course_id, newStudentCountValue)}
-                    className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer"
-                  >
-                    Save & Reallocate Rooms
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {/* Add User Modal */}
       {showAddUserModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
-          <div className={`border rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 transition ${
-            isDark ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className={`w-full max-w-md border rounded-2xl p-6 shadow-2xl space-y-4 ${
+            isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
           }`}>
-            <div className={`flex items-center justify-between border-b pb-3 ${
-              isDark ? 'border-slate-800' : 'border-slate-200'
-            }`}>
-              <h3 className={`text-sm font-bold flex items-center gap-2 ${
-                isDark ? 'text-white' : 'text-slate-900'
-              }`}>
-                <Users className="w-4 h-4 text-indigo-500" />
-                <span>Add Institutional User</span>
-              </h3>
+            <div className="flex items-center justify-between border-b pb-3">
+              <h3 className={`text-base font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>Add New Institutional User</h3>
               <button
                 onClick={() => setShowAddUserModal(false)}
-                className={`p-1 rounded-lg transition cursor-pointer ${
-                  isDark ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-900'
-                }`}
+                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateUser} className="space-y-3">
+            <form onSubmit={handleCreateUser} className="space-y-3.5 text-xs">
               <div className="space-y-1">
-                <label className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Full Name</label>
+                <label className="font-semibold text-slate-300">Full Name</label>
                 <input
                   type="text"
                   required
-                  placeholder="Dr. Rajesh Kumar"
+                  placeholder="e.g. Dr. Jane Smith"
                   value={newUserName}
                   onChange={(e) => setNewUserName(e.target.value)}
-                  className={`w-full rounded-xl px-3 py-2 text-xs transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                  className={`w-full rounded-xl px-3 py-2 border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
                     isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
                   }`}
                 />
               </div>
 
               <div className="space-y-1">
-                <label className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Email Address</label>
+                <label className="font-semibold text-slate-300">Institutional Email</label>
                 <input
                   type="email"
                   required
-                  placeholder="rajesh.kumar@acadence.edu"
+                  placeholder="jane.smith@institution.edu"
                   value={newUserEmail}
                   onChange={(e) => setNewUserEmail(e.target.value)}
-                  className={`w-full rounded-xl px-3 py-2 text-xs transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                  className={`w-full rounded-xl px-3 py-2 border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
                     isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
                   }`}
                 />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Role Tier</label>
-                  <select
-                    value={newUserRole}
-                    onChange={(e) => setNewUserRole(e.target.value as UserRole)}
-                    className={`w-full rounded-xl px-3 py-2 text-xs transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
-                  >
-                    <option value="ADMIN">ADMIN</option>
-                    <option value="COORDINATOR">COORDINATOR</option>
-                    <option value="FACULTY">FACULTY</option>
-                    <option value="STUDENT">STUDENT</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Default Password</label>
-                  <input
-                    type="password"
-                    value={newUserPass}
-                    onChange={(e) => setNewUserPass(e.target.value)}
-                    className={`w-full rounded-xl px-3 py-2 text-xs transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
-                  />
-                </div>
               </div>
 
               <div className="space-y-1">
-                <label className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Department / Division</label>
+                <label className="font-semibold text-slate-300">Department / Academic Unit</label>
                 <input
                   type="text"
                   required
-                  placeholder="Department of Computer Applications"
+                  placeholder="e.g. Computer Science & Eng."
                   value={newUserDept}
                   onChange={(e) => setNewUserDept(e.target.value)}
-                  className={`w-full rounded-xl px-3 py-2 text-xs transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                  className={`w-full rounded-xl px-3 py-2 border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
                     isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
                   }`}
                 />
               </div>
 
-              <div className={`pt-3 flex justify-end gap-2 border-t ${
-                isDark ? 'border-slate-800' : 'border-slate-200'
-              }`}>
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-300">Assigned Institutional Role</label>
+                <select
+                  value={newUserRole}
+                  onChange={(e) => setNewUserRole(e.target.value as UserRole)}
+                  className={`w-full rounded-xl px-3 py-2 border focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${
+                    isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                >
+                  <option value="FACULTY">FACULTY (View-Only Timetable & Dashboard Access)</option>
+                  <option value="COORDINATOR">COORDINATOR (Timetable, Curriculum & Academic Operations)</option>
+                  <option value="ADMIN">ADMIN (Super Admin with System Settings & User Provisioning)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-300">Initial Password</label>
+                <input
+                  type="password"
+                  required
+                  value={newUserPass}
+                  onChange={(e) => setNewUserPass(e.target.value)}
+                  className={`w-full rounded-xl px-3 py-2 border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                    isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div className="pt-3 border-t flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowAddUserModal(false)}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition border cursor-pointer ${
-                    isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
-                  }`}
+                  className="px-3.5 py-2 rounded-xl border text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg shadow-md transition cursor-pointer"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-md transition cursor-pointer"
                 >
                   Create Account
                 </button>

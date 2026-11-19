@@ -102,6 +102,8 @@ class SessionRequirement(BaseModel):
     faculty_count: int = 1
     pre_assigned_faculty_ids: List[str] = Field(default_factory=list)
     eligible_faculty_ids: List[str] = Field(default_factory=list)
+    pre_assigned_room_id: Optional[str] = None
+    eligible_room_ids: List[str] = Field(default_factory=list)
 
     model_config = {"frozen": True}
 

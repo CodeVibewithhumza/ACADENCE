@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   CheckCircle2, RefreshCw,
   Layers, Users, DoorOpen, Sparkles, Move,
   FileSpreadsheet, Check,
   BookOpen, GraduationCap, GitFork, Cpu, Globe, Shield,
-  Building2, Clock, Plus, Trash2, Settings, Upload, Database,
-  UserCheck, Calendar, LayoutDashboard,
-  Sliders
+  Building2, Clock, Plus, Upload, Database,
+  Calendar, LayoutDashboard,
+  Sliders, AlertTriangle, Lock
 } from 'lucide-react';
 import { LoginScreen } from './components/LoginScreen';
 import { Sidebar } from './components/Sidebar';
@@ -107,15 +107,431 @@ interface SnapshotData {
   }>;
 }
 
+export const DEFAULT_COURSES: any[] = [
+  {
+    course_id: "BTECH_Y1",
+    course_name: "B.Tech 1st Year",
+    program_id: "BTECH_CSE",
+    year: 1,
+    semester: 1,
+    department: "Computer Science & Engineering",
+    student_count: 140,
+    preferred_room_type: "LECTURE_HALL",
+    rooms_required: 2,
+    max_capacity_per_room: 75,
+    allocated_room_ids: ["SMART_LH_101", "SMART_LH_102"],
+    allocated_room_names: ["Smart Lecture Hall 101 (75 seats)", "Smart Lecture Hall 102 (75 seats)"],
+    section_ids: ["GRP_BTECH_Y1_SECA", "GRP_BTECH_Y1_SECB"],
+    sections: [
+      {
+        section_name: "Section A",
+        students: 70,
+        room_id: "SMART_LH_101",
+        room_name: "Smart Lecture Hall 101 (75 seats)",
+        capacity: 75,
+        is_locked: true,
+        has_deficit: false,
+        section_id: "GRP_BTECH_Y1_SECA",
+        allocated_room_id: "SMART_LH_101",
+        allocated_room_name: "Smart Lecture Hall 101 (75 seats)",
+      },
+      {
+        section_name: "Section B",
+        students: 70,
+        room_id: "SMART_LH_102",
+        room_name: "Smart Lecture Hall 102 (75 seats)",
+        capacity: 75,
+        is_locked: true,
+        has_deficit: false,
+        section_id: "GRP_BTECH_Y1_SECB",
+        allocated_room_id: "SMART_LH_102",
+        allocated_room_name: "Smart Lecture Hall 102 (75 seats)",
+      },
+    ],
+    has_deficit: false,
+    deficit_count: 0,
+    error_message: null,
+    is_exclusive_locked: true,
+  },
+  {
+    course_id: "BTECH_Y2",
+    course_name: "B.Tech 2nd Year",
+    program_id: "BTECH_CSE",
+    year: 2,
+    semester: 3,
+    department: "Computer Science & Engineering",
+    student_count: 120,
+    preferred_room_type: "LECTURE_HALL",
+    rooms_required: 2,
+    max_capacity_per_room: 75,
+    allocated_room_ids: ["SMART_LH_103", "SMART_LH_104"],
+    allocated_room_names: ["Smart Lecture Hall 103 (75 seats)", "Smart Lecture Hall 104 (75 seats)"],
+    section_ids: ["GRP_BTECH_Y2_SECA", "GRP_BTECH_Y2_SECB"],
+    sections: [
+      {
+        section_name: "Section A",
+        students: 60,
+        room_id: "SMART_LH_103",
+        room_name: "Smart Lecture Hall 103 (75 seats)",
+        capacity: 75,
+        is_locked: true,
+        has_deficit: false,
+        section_id: "GRP_BTECH_Y2_SECA",
+        allocated_room_id: "SMART_LH_103",
+        allocated_room_name: "Smart Lecture Hall 103 (75 seats)",
+      },
+      {
+        section_name: "Section B",
+        students: 60,
+        room_id: "SMART_LH_104",
+        room_name: "Smart Lecture Hall 104 (75 seats)",
+        capacity: 75,
+        is_locked: true,
+        has_deficit: false,
+        section_id: "GRP_BTECH_Y2_SECB",
+        allocated_room_id: "SMART_LH_104",
+        allocated_room_name: "Smart Lecture Hall 104 (75 seats)",
+      },
+    ],
+    has_deficit: false,
+    deficit_count: 0,
+    error_message: null,
+    is_exclusive_locked: true,
+  },
+  {
+    course_id: "BTECH_Y3",
+    course_name: "B.Tech 3rd Year",
+    program_id: "BTECH_CSE",
+    year: 3,
+    semester: 5,
+    department: "Computer Science & Engineering",
+    student_count: 70,
+    preferred_room_type: "LECTURE_HALL",
+    rooms_required: 1,
+    max_capacity_per_room: 75,
+    allocated_room_ids: ["SMART_LH_105"],
+    allocated_room_names: ["Smart Lecture Hall 105 (75 seats)"],
+    section_ids: ["GRP_BTECH_Y3_SECA"],
+    sections: [
+      {
+        section_name: "Section A",
+        students: 70,
+        room_id: "SMART_LH_105",
+        room_name: "Smart Lecture Hall 105 (75 seats)",
+        capacity: 75,
+        is_locked: true,
+        has_deficit: false,
+        section_id: "GRP_BTECH_Y3_SECA",
+        allocated_room_id: "SMART_LH_105",
+        allocated_room_name: "Smart Lecture Hall 105 (75 seats)",
+      },
+    ],
+    has_deficit: false,
+    deficit_count: 0,
+    error_message: null,
+    is_exclusive_locked: true,
+  },
+  {
+    course_id: "BTECH_Y4",
+    course_name: "B.Tech 4th Year",
+    program_id: "BTECH_CSE",
+    year: 4,
+    semester: 7,
+    department: "Computer Science & Engineering",
+    student_count: 65,
+    preferred_room_type: "LECTURE_HALL",
+    rooms_required: 1,
+    max_capacity_per_room: 75,
+    allocated_room_ids: ["SMART_LH_106"],
+    allocated_room_names: ["Smart Lecture Hall 106 (75 seats)"],
+    section_ids: ["GRP_BTECH_Y4_SECA"],
+    sections: [
+      {
+        section_name: "Section A",
+        students: 65,
+        room_id: "SMART_LH_106",
+        room_name: "Smart Lecture Hall 106 (75 seats)",
+        capacity: 75,
+        is_locked: true,
+        has_deficit: false,
+        section_id: "GRP_BTECH_Y4_SECA",
+        allocated_room_id: "SMART_LH_106",
+        allocated_room_name: "Smart Lecture Hall 106 (75 seats)",
+      },
+    ],
+    has_deficit: false,
+    deficit_count: 0,
+    error_message: null,
+    is_exclusive_locked: true,
+  },
+  // BCA Cohorts
+  {
+    course_id: "BCA_Y1",
+    course_name: "BCA 1st Year",
+    program_id: "BCA",
+    year: 1,
+    semester: 1,
+    department: "Computer Applications",
+    student_count: 60,
+    preferred_room_type: "LECTURE_HALL",
+    rooms_required: 1,
+    max_capacity_per_room: 75,
+    allocated_room_ids: ["SMART_LH_201"],
+    allocated_room_names: ["BCA Smart Lecture Hall 201 (75 seats)"],
+    section_ids: ["GRP_BCA_Y1_SECA"],
+    sections: [
+      {
+        section_name: "Section A",
+        students: 60,
+        room_id: "SMART_LH_201",
+        room_name: "BCA Smart Lecture Hall 201 (75 seats)",
+        capacity: 75,
+        is_locked: true,
+        has_deficit: false,
+        section_id: "GRP_BCA_Y1_SECA",
+        allocated_room_id: "SMART_LH_201",
+        allocated_room_name: "BCA Smart Lecture Hall 201 (75 seats)",
+      },
+    ],
+    has_deficit: false,
+    deficit_count: 0,
+    error_message: null,
+    is_exclusive_locked: true,
+  },
+  {
+    course_id: "BCA_Y2",
+    course_name: "BCA 2nd Year",
+    program_id: "BCA",
+    year: 2,
+    semester: 3,
+    department: "Computer Applications",
+    student_count: 55,
+    preferred_room_type: "LECTURE_HALL",
+    rooms_required: 1,
+    max_capacity_per_room: 75,
+    allocated_room_ids: ["SMART_LH_202"],
+    allocated_room_names: ["BCA Smart Lecture Hall 202 (75 seats)"],
+    section_ids: ["GRP_BCA_Y2_SECA"],
+    sections: [
+      {
+        section_name: "Section A",
+        students: 55,
+        room_id: "SMART_LH_202",
+        room_name: "BCA Smart Lecture Hall 202 (75 seats)",
+        capacity: 75,
+        is_locked: true,
+        has_deficit: false,
+        section_id: "GRP_BCA_Y2_SECA",
+        allocated_room_id: "SMART_LH_202",
+        allocated_room_name: "BCA Smart Lecture Hall 202 (75 seats)",
+      },
+    ],
+    has_deficit: false,
+    deficit_count: 0,
+    error_message: null,
+    is_exclusive_locked: true,
+  },
+  {
+    course_id: "BCA_Y3",
+    course_name: "BCA 3rd Year",
+    program_id: "BCA",
+    year: 3,
+    semester: 5,
+    department: "Computer Applications",
+    student_count: 50,
+    preferred_room_type: "LECTURE_HALL",
+    rooms_required: 1,
+    max_capacity_per_room: 75,
+    allocated_room_ids: ["SMART_LH_203"],
+    allocated_room_names: ["BCA Smart Lecture Hall 203 (75 seats)"],
+    section_ids: ["GRP_BCA_Y3_SECA"],
+    sections: [
+      {
+        section_name: "Section A",
+        students: 50,
+        room_id: "SMART_LH_203",
+        room_name: "BCA Smart Lecture Hall 203 (75 seats)",
+        capacity: 75,
+        is_locked: true,
+        has_deficit: false,
+        section_id: "GRP_BCA_Y3_SECA",
+        allocated_room_id: "SMART_LH_203",
+        allocated_room_name: "BCA Smart Lecture Hall 203 (75 seats)",
+      },
+    ],
+    has_deficit: false,
+    deficit_count: 0,
+    error_message: null,
+    is_exclusive_locked: true,
+  },
+  // B.Tech ECE Cohorts
+  {
+    course_id: "ECE_Y1",
+    course_name: "B.Tech ECE 1st Year",
+    program_id: "BTECH_ECE",
+    year: 1,
+    semester: 1,
+    department: "Electronics & Communication Engineering",
+    student_count: 60,
+    preferred_room_type: "LECTURE_HALL",
+    rooms_required: 1,
+    max_capacity_per_room: 75,
+    allocated_room_ids: ["SMART_LH_301"],
+    allocated_room_names: ["ECE Smart Lecture Hall 301 (75 seats)"],
+    section_ids: ["GRP_ECE_Y1_SECA"],
+    sections: [
+      {
+        section_name: "Section A",
+        students: 60,
+        room_id: "SMART_LH_301",
+        room_name: "ECE Smart Lecture Hall 301 (75 seats)",
+        capacity: 75,
+        is_locked: true,
+        has_deficit: false,
+        section_id: "GRP_ECE_Y1_SECA",
+        allocated_room_id: "SMART_LH_301",
+        allocated_room_name: "ECE Smart Lecture Hall 301 (75 seats)",
+      },
+    ],
+    has_deficit: false,
+    deficit_count: 0,
+    error_message: null,
+    is_exclusive_locked: true,
+  },
+  {
+    course_id: "ECE_Y2",
+    course_name: "B.Tech ECE 2nd Year",
+    program_id: "BTECH_ECE",
+    year: 2,
+    semester: 3,
+    department: "Electronics & Communication Engineering",
+    student_count: 60,
+    preferred_room_type: "LECTURE_HALL",
+    rooms_required: 1,
+    max_capacity_per_room: 75,
+    allocated_room_ids: ["SMART_LH_302"],
+    allocated_room_names: ["ECE Smart Lecture Hall 302 (75 seats)"],
+    section_ids: ["GRP_ECE_Y2_SECA"],
+    sections: [
+      {
+        section_name: "Section A",
+        students: 60,
+        room_id: "SMART_LH_302",
+        room_name: "ECE Smart Lecture Hall 302 (75 seats)",
+        capacity: 75,
+        is_locked: true,
+        has_deficit: false,
+        section_id: "GRP_ECE_Y2_SECA",
+        allocated_room_id: "SMART_LH_302",
+        allocated_room_name: "ECE Smart Lecture Hall 302 (75 seats)",
+      },
+    ],
+    has_deficit: false,
+    deficit_count: 0,
+    error_message: null,
+    is_exclusive_locked: true,
+  },
+  {
+    course_id: "ECE_Y3",
+    course_name: "B.Tech ECE 3rd Year",
+    program_id: "BTECH_ECE",
+    year: 3,
+    semester: 5,
+    department: "Electronics & Communication Engineering",
+    student_count: 55,
+    preferred_room_type: "LECTURE_HALL",
+    rooms_required: 1,
+    max_capacity_per_room: 75,
+    allocated_room_ids: ["SMART_LH_303"],
+    allocated_room_names: ["ECE Smart Lecture Hall 303 (75 seats)"],
+    section_ids: ["GRP_ECE_Y3_SECA"],
+    sections: [
+      {
+        section_name: "Section A",
+        students: 55,
+        room_id: "SMART_LH_303",
+        room_name: "ECE Smart Lecture Hall 303 (75 seats)",
+        capacity: 75,
+        is_locked: true,
+        has_deficit: false,
+        section_id: "GRP_ECE_Y3_SECA",
+        allocated_room_id: "SMART_LH_303",
+        allocated_room_name: "ECE Smart Lecture Hall 303 (75 seats)",
+      },
+    ],
+    has_deficit: false,
+    deficit_count: 0,
+    error_message: null,
+    is_exclusive_locked: true,
+  },
+  {
+    course_id: "ECE_Y4",
+    course_name: "B.Tech ECE 4th Year",
+    program_id: "BTECH_ECE",
+    year: 4,
+    semester: 7,
+    department: "Electronics & Communication Engineering",
+    student_count: 50,
+    preferred_room_type: "LECTURE_HALL",
+    rooms_required: 1,
+    max_capacity_per_room: 75,
+    allocated_room_ids: ["SMART_LH_304"],
+    allocated_room_names: ["ECE Smart Lecture Hall 304 (75 seats)"],
+    section_ids: ["GRP_ECE_Y4_SECA"],
+    sections: [
+      {
+        section_name: "Section A",
+        students: 50,
+        room_id: "SMART_LH_304",
+        room_name: "ECE Smart Lecture Hall 304 (75 seats)",
+        capacity: 75,
+        is_locked: true,
+        has_deficit: false,
+        section_id: "GRP_ECE_Y4_SECA",
+        allocated_room_id: "SMART_LH_304",
+        allocated_room_name: "ECE Smart Lecture Hall 304 (75 seats)",
+      },
+    ],
+    has_deficit: false,
+    deficit_count: 0,
+    error_message: null,
+    is_exclusive_locked: true,
+  },
+];
+
+export const DEFAULT_PROGRAMS = [
+  {
+    program_id: "BTECH_CSE",
+    name: "Bachelor of Technology in Computer Science & Engineering",
+    short_code: "B.Tech CSE",
+    duration_years: 4,
+    total_subjects: 27,
+  },
+  {
+    program_id: "BCA",
+    name: "Bachelor of Computer Applications",
+    short_code: "BCA",
+    duration_years: 3,
+    total_subjects: 18,
+  },
+  {
+    program_id: "BTECH_ECE",
+    name: "Bachelor of Technology in Electronics & Communication",
+    short_code: "B.Tech ECE",
+    duration_years: 4,
+    total_subjects: 24,
+  },
+];
+
 export default function App() {
   const [snapshot, setSnapshot] = useState<SnapshotData | null>(null);
   const [placements, setPlacements] = useState<Placement[]>([]);
-  const [metrics, setMetrics] = useState<MetricReport | null>(null);
+  const [_metrics, setMetrics] = useState<MetricReport | null>(null);
   const [validation, setValidation] = useState<ValidationReport | null>(null);
   const [activeProfile, setActiveProfile] = useState<string>('BALANCED');
   const [loading, setLoading] = useState<boolean>(true);
   const [solving, setSolving] = useState<boolean>(false);
-  const [solveTime, setSolveTime] = useState<number>(0.85);
+  const [_solveTime, setSolveTime] = useState<number>(0.85);
 
   // User Authentication & Role State (supports hello@123.com / 123)
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -154,21 +570,68 @@ export default function App() {
 
   // Top Nav Main View: 'DASHBOARD' | 'TIMETABLE' | 'INPUT_STUDIO' | 'CURRICULUM' | 'SETTINGS'
   const [mainView, setMainView] = useState<'DASHBOARD' | 'TIMETABLE' | 'INPUT_STUDIO' | 'CURRICULUM' | 'SETTINGS'>('DASHBOARD');
-  const [inputStudioTab, setInputStudioTab] = useState<'COURSES' | 'FACULTY' | 'ROOMS' | 'STUDENT_PATHWAY' | 'CSV'>('COURSES');
+  const [inputStudioTab, setInputStudioTab] = useState<'FACULTY' | 'ROOMS' | 'CSV'>('FACULTY');
 
-  // Academic Degree Programs Catalog for Filters (strictly derived from registered courses in Settings)
+  // Academic Degree Programs Catalog
+  const [programs, setPrograms] = useState<any[]>(DEFAULT_PROGRAMS);
+  const [selectedProgramId, setSelectedProgramId] = useState<string>('BTECH_CSE');
   const [_availablePrograms, setAvailablePrograms] = useState<Array<{ id: string; label: string; badge: string }>>([
     { id: 'ALL', label: 'All Programs (Unified)', badge: 'Master' },
     { id: 'BTECH_CSE', label: 'B.Tech CSE', badge: '4 Years' },
   ]);
 
   // Timetable Filters & Registered Course Cohorts
-  const [courses, setCourses] = useState<any[]>([]);
+  const [courses, setCourses] = useState<any[]>(DEFAULT_COURSES);
+  const [campusDeficits, setCampusDeficits] = useState<string[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<string>('BTECH_Y1');
   const [selectedSectionId, setSelectedSectionId] = useState<string>('GRP_BTECH_Y1_SECA');
   const [, setSelectedProgram] = useState<string>('ALL');
   const [viewType, setViewType] = useState<'GROUP' | 'FACULTY' | 'ROOM'>('GROUP');
   const [selectedEntityId, setSelectedEntityId] = useState<string>('GRP_BTECH_Y1_SECA');
+
+  const filteredCourses = useMemo(() => {
+    if (!selectedProgramId) return courses;
+    const matched = courses.filter(c => c.program_id === selectedProgramId);
+    return matched.length > 0 ? matched : courses;
+  }, [courses, selectedProgramId]);
+
+  function handleSelectProgram(progId: string) {
+    setSelectedProgramId(progId);
+    setSelectedProgram(progId);
+    const progCourses = courses.filter(c => c.program_id === progId);
+    if (progCourses.length > 0) {
+      handleSelectCourse(progCourses[0].course_id);
+    } else if (snapshot) {
+      if (progId === 'ALL') {
+        const firstLeaf = snapshot.student_groups.find(g => g.parent_id) || snapshot.student_groups[0];
+        if (firstLeaf) setSelectedEntityId(firstLeaf.group_id);
+      } else {
+        const match = snapshot.student_groups.find(g => (g.program_type === progId || g.group_id.includes(progId) || g.name.toLowerCase().includes(progId.toLowerCase())) && g.parent_id)
+          || snapshot.student_groups.find(g => g.program_type === progId || g.group_id.includes(progId) || g.name.toLowerCase().includes(progId.toLowerCase()));
+        if (match) setSelectedEntityId(match.group_id);
+      }
+    }
+  }
+
+  async function fetchCourses() {
+    try {
+      const res = await fetch('/api/courses');
+      const data = await res.json();
+      if (data?.courses && data.courses.length > 0) {
+        setCourses(data.courses);
+        if (data.campus_deficits) {
+          setCampusDeficits(data.campus_deficits);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch courses:', e);
+    }
+  }
+
+  // Refresh courses when main view switches
+  useEffect(() => {
+    fetchCourses();
+  }, [mainView]);
 
   function handleSelectCourse(courseId: string, sectionId?: string) {
     setSelectedCourseId(courseId);
@@ -179,6 +642,8 @@ export default function App() {
       setSelectedEntityId(sec);
     }
   }
+
+
 
   // Interactive Live Move
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null);
@@ -213,7 +678,7 @@ export default function App() {
 
   // Student Pathway State
   const [pathwayGroup, setPathwayGroup] = useState<string>('GRP_FYUP_SEC_A');
-  const [pathwayMinor, setPathwayMinor] = useState<string>('REQ_MINOR_ECO');
+  const [pathwayMinor] = useState<string>('REQ_MINOR_ECO');
   const [pathwayPlacements, setPathwayPlacements] = useState<Placement[]>([]);
 
   // CSV Ingestion State
@@ -223,7 +688,8 @@ export default function App() {
   const [csvMessage, setCsvMessage] = useState<string | null>(null);
 
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-  const periods = [
+  const [lunchBreakAfter, setLunchBreakAfter] = useState<number>(3);
+  const [periods, setPeriods] = useState<Array<{ p: number; label: string; time: string; is_break?: boolean }>>([
     { p: 0, label: 'P1', time: '08:30 - 09:20' },
     { p: 1, label: 'P2', time: '09:20 - 10:10' },
     { p: 2, label: 'P3', time: '10:10 - 11:00' },
@@ -232,24 +698,50 @@ export default function App() {
     { p: 5, label: 'P6', time: '13:10 - 14:00' },
     { p: 6, label: 'P7', time: '14:00 - 14:50' },
     { p: 7, label: 'P8', time: '14:50 - 15:40' },
-  ];
+  ]);
 
   // Load initial data
   useEffect(() => {
     async function init() {
       try {
         setLoading(true);
-        const [snapRes, timeRes, progRes, coursesRes] = await Promise.all([
+        const [snapRes, timeRes, progRes, coursesRes, settingsRes] = await Promise.all([
           fetch('/api/snapshot').then(r => r.json()),
           fetch('/api/timetable').then(r => r.json()),
           fetch('/api/curriculum/programs').then(r => r.json()).catch(() => []),
           fetch('/api/courses').then(r => r.json()).catch(() => ({ courses: [] })),
+          fetch('/api/settings').then(r => r.json()).catch(() => null),
         ]);
         setSnapshot(snapRes);
         setPlacements(timeRes.placements || []);
         setMetrics(timeRes.metrics || null);
         setValidation(timeRes.validation || null);
         setActiveProfile(timeRes.profile || 'BALANCED');
+        if (settingsRes?.lunch_break_after !== undefined) {
+          setLunchBreakAfter(settingsRes.lunch_break_after);
+        } else if (settingsRes?.periods_schedule && settingsRes.periods_schedule.length > 1) {
+          for (let i = 1; i < settingsRes.periods_schedule.length; i++) {
+            const prevEnd = settingsRes.periods_schedule[i - 1].end_time;
+            const currStart = settingsRes.periods_schedule[i].start_time;
+            if (prevEnd && currStart) {
+              const [ph, pm] = prevEnd.split(':').map(Number);
+              const [ch, cm] = currStart.split(':').map(Number);
+              const gap = (ch * 60 + cm) - (ph * 60 + pm);
+              if (gap >= 20) {
+                setLunchBreakAfter(i);
+                break;
+              }
+            }
+          }
+        }
+        if (settingsRes?.periods_schedule && settingsRes.periods_schedule.length > 0) {
+          setPeriods(settingsRes.periods_schedule.map((ps: any) => ({
+            p: ps.p,
+            label: ps.label || `P${ps.p + 1}`,
+            time: `${ps.start_time || ''} - ${ps.end_time || ''}`,
+            is_break: ps.is_break,
+          })));
+        }
         if (coursesRes?.courses && coursesRes.courses.length > 0) {
           setCourses(coursesRes.courses);
           const firstCourse = coursesRes.courses[0];
@@ -259,6 +751,7 @@ export default function App() {
           setSelectedEntityId(firstSec);
         }
         if (progRes && Array.isArray(progRes) && progRes.length > 0) {
+          setPrograms(progRes);
           setAvailablePrograms([
             { id: 'ALL', label: 'All Programs (Unified)', badge: 'Master' },
             ...progRes.map((p: any) => ({
@@ -306,22 +799,24 @@ export default function App() {
     fetchPathway();
   }, [pathwayGroup, pathwayMinor, placements]);
 
-  // Program selection
-  function handleSelectProgram(prog: string) {
-    setSelectedProgram(prog);
-    if (!snapshot) return;
-    if (prog === 'ALL') {
-      const firstLeaf = snapshot.student_groups.find(g => g.parent_id) || snapshot.student_groups[0];
-      if (firstLeaf) setSelectedEntityId(firstLeaf.group_id);
-    } else {
-      const match = snapshot.student_groups.find(g => (g.program_type === prog || g.group_id.includes(prog) || g.name.toLowerCase().includes(prog.toLowerCase())) && g.parent_id)
-        || snapshot.student_groups.find(g => g.program_type === prog || g.group_id.includes(prog) || g.name.toLowerCase().includes(prog.toLowerCase()));
-      if (match) setSelectedEntityId(match.group_id);
+
+
+  // RBAC Access Control Guard: Faculty can only view Dashboard & Timetable, Coordinator cannot view Settings
+  useEffect(() => {
+    if (!currentUser) return;
+    if (currentUser.role === 'FACULTY' && mainView !== 'DASHBOARD' && mainView !== 'TIMETABLE') {
+      setMainView('DASHBOARD');
+    } else if (currentUser.role === 'COORDINATOR' && mainView === 'SETTINGS') {
+      setMainView('DASHBOARD');
     }
-  }
+  }, [currentUser, mainView]);
 
   // Generate / Re-optimize
   async function handleGenerate(profileName: string) {
+    if (currentUser?.role === 'FACULTY') {
+      alert('Access Restricted: Faculty accounts have view-only access to published timetables.');
+      return;
+    }
     try {
       setSolving(true);
       setSelectedInstanceId(null);
@@ -387,28 +882,6 @@ export default function App() {
     }
   }
 
-  // Handle Delete Course
-  async function handleDeleteCourse(reqId: string) {
-    if (!confirm(`Are you sure you want to delete course requirement ${reqId}?`)) return;
-    try {
-      setSolving(true);
-      const res = await fetch(`/api/admin/course/${reqId}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (data.success) {
-        setPlacements(data.placements);
-        setValidation(data.validation);
-        const snapRes = await fetch('/api/snapshot').then(r => r.json());
-        setSnapshot(snapRes);
-        setMoveMessage(`Deleted ${reqId} and re-optimized timetable.`);
-        setTimeout(() => setMoveMessage(null), 3000);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setSolving(false);
-    }
-  }
-
   // Toggle Faculty Availability
   async function handleToggleFacultySlot(facId: string, slotIdx: number) {
     try {
@@ -455,20 +928,45 @@ export default function App() {
   // Refresh all snapshot and timetable state
   async function handleRefreshAllData() {
     try {
-      const [snapRes, timeRes, progRes, coursesRes] = await Promise.all([
+      const [snapRes, timeRes, progRes, coursesRes, settingsRes] = await Promise.all([
         fetch('/api/snapshot').then(r => r.json()),
         fetch('/api/timetable').then(r => r.json()),
         fetch('/api/curriculum/programs').then(r => r.json()).catch(() => []),
         fetch('/api/courses').then(r => r.json()).catch(() => ({ courses: [] })),
+        fetch('/api/settings').then(r => r.json()).catch(() => null),
       ]);
       setSnapshot(snapRes);
       setPlacements(timeRes.placements || []);
       setMetrics(timeRes.metrics || null);
       setValidation(timeRes.validation || null);
+      if (settingsRes?.lunch_break_after !== undefined) {
+        setLunchBreakAfter(settingsRes.lunch_break_after);
+      } else if (settingsRes?.periods_schedule && settingsRes.periods_schedule.length > 1) {
+        for (let i = 1; i < settingsRes.periods_schedule.length; i++) {
+          const prev = settingsRes.periods_schedule[i - 1];
+          const curr = settingsRes.periods_schedule[i];
+          const [ph, pm] = (prev.end_time || '00:00').split(':').map(Number);
+          const [ch, cm] = (curr.start_time || '00:00').split(':').map(Number);
+          const gap = (ch * 60 + cm) - (ph * 60 + pm);
+          if (gap >= 20) {
+            setLunchBreakAfter(i);
+            break;
+          }
+        }
+      }
+      if (settingsRes?.periods_schedule && settingsRes.periods_schedule.length > 0) {
+        setPeriods(settingsRes.periods_schedule.map((ps: any) => ({
+          p: ps.p,
+          label: ps.label || `P${ps.p + 1}`,
+          time: `${ps.start_time || ''} - ${ps.end_time || ''}`,
+          is_break: ps.is_break,
+        })));
+      }
       if (coursesRes?.courses && coursesRes.courses.length > 0) {
         setCourses(coursesRes.courses);
       }
       if (progRes && Array.isArray(progRes) && progRes.length > 0) {
+        setPrograms(progRes);
         setAvailablePrograms([
           { id: 'ALL', label: 'All Programs (Unified)', badge: 'Master' },
           ...progRes.map((p: any) => ({
@@ -485,6 +983,9 @@ export default function App() {
 
   // Session Click -> Compute Valid Targets
   async function handleSessionClick(instanceId: string) {
+    if (currentUser?.role === 'FACULTY') {
+      return; // Read-only view for faculty
+    }
     if (selectedInstanceId === instanceId) {
       setSelectedInstanceId(null);
       setValidTargetSlots([]);
@@ -505,6 +1006,9 @@ export default function App() {
 
   // Execute Move
   async function handleSlotClick(slotIdx: number) {
+    if (currentUser?.role === 'FACULTY') {
+      return; // Read-only view for faculty
+    }
     if (!selectedInstanceId || !validTargetSlots.includes(slotIdx)) return;
     try {
       setMoveMessage("Applying move with Independent Validator verification...");
@@ -891,30 +1395,16 @@ export default function App() {
         </header>
 
         {/* Role Access Banners */}
-        {currentUser.role === 'STUDENT' && (
-          <div className={`no-print shrink-0 border-b px-6 py-2 text-xs flex items-center justify-between ${isDark ? 'bg-amber-950/60 border-amber-500/30 text-amber-200' : 'bg-amber-50 border-amber-200 text-amber-800'
-            }`}>
-            <span className="flex items-center gap-2">
-              <Shield className="w-4 h-4 text-amber-500" />
-              <span>Student Cohort Mode — Viewing FYUP / B.Ed. Multidisciplinary Schedule. Editing & solver runs are locked.</span>
-            </span>
-            <span className={`font-bold text-[10px] px-2 py-0.5 rounded border ${isDark ? 'bg-amber-900 border-amber-500/40' : 'bg-amber-100 border-amber-300 text-amber-800'
-              }`}>
-              STUDENT READ-ONLY
-            </span>
-          </div>
-        )}
-
         {currentUser.role === 'FACULTY' && (
-          <div className={`no-print shrink-0 border-b px-6 py-2 text-xs flex items-center justify-between ${isDark ? 'bg-emerald-950/60 border-emerald-500/30 text-emerald-200' : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+          <div className={`no-print shrink-0 border-b px-6 py-2.5 text-xs flex items-center justify-between ${isDark ? 'bg-emerald-950/60 border-emerald-500/30 text-emerald-200' : 'bg-emerald-50 border-emerald-200 text-emerald-800'
             }`}>
             <span className="flex items-center gap-2">
-              <GraduationCap className="w-4 h-4 text-emerald-500" />
-              <span>Faculty Portal ({currentUser.name}) — Viewing personal teaching load & weekly timetable.</span>
+              <Lock className="w-4 h-4 text-emerald-400" />
+              <span>Faculty Portal ({currentUser.name}) — Viewing published campus dashboard and timetable matrix. Editing, rescheduling, and administrative settings are restricted.</span>
             </span>
-            <span className={`font-bold text-[10px] px-2 py-0.5 rounded border ${isDark ? 'bg-emerald-900 border-emerald-500/40' : 'bg-emerald-100 border-emerald-300 text-emerald-800'
+            <span className={`font-bold text-[10px] px-2 py-0.5 rounded border ${isDark ? 'bg-emerald-900 border-emerald-500/40 text-emerald-200' : 'bg-emerald-100 border-emerald-300 text-emerald-800'
               }`}>
-              FACULTY VIEW
+              FACULTY READ-ONLY
             </span>
           </div>
         )}
@@ -940,6 +1430,8 @@ export default function App() {
               }}
               onRefreshData={handleRefreshAllData}
               theme={theme}
+              periods={periods}
+              lunchBreakAfter={lunchBreakAfter}
             />
           )}
 
@@ -947,30 +1439,10 @@ export default function App() {
           {/* VIEW A: TIMETABLE SCHEDULE VIEWER                                         */}
           {/* ========================================================================= */}
           {mainView === 'TIMETABLE' && (
-            <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-5 animate-in fade-in duration-200">
+            <main className="flex-1 p-4 lg:p-6 w-full space-y-4 animate-in fade-in duration-200">
 
-              {/* Quick Notice to Go to Input Studio */}
-              <div className={`no-print border rounded-xl p-3 flex flex-wrap items-center justify-between text-xs gap-2 transition ${isDark
-                ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-300'
-                : 'bg-emerald-50/90 border-emerald-200 text-emerald-800 shadow-xs'
-                }`}>
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-amber-500" />
-                  <span>
-                    Want to feed new courses, faculty hours, or upload student choice datasets?
-                  </span>
-                </div>
-                <button
-                  onClick={() => setMainView('INPUT_STUDIO')}
-                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition shadow-xs flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Settings className="w-3.5 h-3.5" />
-                  <span>Open Academic Data Input Studio &rarr;</span>
-                </button>
-              </div>
-
-              {/* Schedule Perspective Switcher & Fast Actions */}
-              <div className={`no-print border rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 transition ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+              {/* Schedule Perspective Switcher */}
+              <div className={`no-print border rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-4 transition ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
                 }`}>
                 <div className="flex items-center gap-3 flex-wrap">
                   <span className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${isDark ? 'text-slate-400' : 'text-slate-600'
@@ -1020,45 +1492,54 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-
-                <div className="flex items-center gap-2.5">
-                  <button
-                    onClick={() => setMainView('CURRICULUM')}
-                    className={`px-3 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${isDark
-                      ? 'bg-indigo-500/10 hover:bg-indigo-500/20 border-indigo-500/30 text-indigo-300'
-                      : 'bg-indigo-50 hover:bg-indigo-100 border-indigo-200 text-indigo-700'
-                      }`}
-                  >
-                    <GraduationCap className="w-3.5 h-3.5" />
-                    <span>Curriculum Studio &rarr;</span>
-                  </button>
-                  <button
-                    onClick={() => setShowBasketModal(true)}
-                    className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${isDark
-                      ? 'bg-purple-950/60 hover:bg-purple-900/60 border-purple-500/40 text-purple-300'
-                      : 'bg-purple-50 hover:bg-purple-100 border-purple-200 text-purple-700'
-                      }`}
-                  >
-                    <GitFork className="w-3.5 h-3.5" />
-                    <span>Elective Basket (CON-H-011)</span>
-                  </button>
-                  <button
-                    onClick={() => setShowWorkloadModal(true)}
-                    className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${isDark
-                      ? 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
-                      : 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700'
-                      }`}
-                  >
-                    <Building2 className="w-3.5 h-3.5 text-blue-500" />
-                    <span>Faculty Workload</span>
-                  </button>
-                </div>
               </div>
 
               {/* When viewType === 'GROUP': Dedicated Registered Course & Year Cohort Navigator */}
               {viewType === 'GROUP' && (
                 <div className={`border rounded-2xl p-4 space-y-3.5 transition ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
                   }`}>
+                  {/* Degree Course / Academic Program Selector Pills (Identical to Curriculum Studio) */}
+                  <div className="space-y-2 pb-1 border-b border-slate-800/40">
+                    <div className="flex items-center justify-between">
+                      <span className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                        <BookOpen className="w-4 h-4 text-indigo-500" />
+                        Select Academic Degree Program / Course:
+                      </span>
+                      <span className="text-[11px] font-mono text-indigo-400 font-bold">
+                        {programs.length} Academic Programs Available
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
+                      {programs.map(prog => {
+                        const isSelected = selectedProgramId === prog.program_id;
+                        return (
+                          <button
+                            key={prog.program_id}
+                            onClick={() => handleSelectProgram(prog.program_id)}
+                            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2.5 shrink-0 border cursor-pointer ${
+                              isSelected
+                                ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-500/20'
+                                : isDark
+                                  ? 'bg-slate-950/60 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700'
+                                  : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200 shadow-xs'
+                            }`}
+                          >
+                            <BookOpen className="w-3.5 h-3.5 opacity-80" />
+                            <span className="font-semibold">{prog.short_code || prog.name}</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              isSelected
+                                ? 'bg-white/20 text-white'
+                                : isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-600'
+                            }`}>
+                              {prog.duration_years} Years • {prog.total_subjects || (prog.duration_years * 6)} Subs
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {/* Course Cohort Cards */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
@@ -1068,11 +1549,11 @@ export default function App() {
                         Select Course & Semester Cohort:
                       </span>
                       <span className="text-[11px] font-mono text-emerald-500 font-bold">
-                        {courses.length} Active Registered Courses
+                        {filteredCourses.length} Registered Cohorts in {programs.find(p => p.program_id === selectedProgramId)?.short_code || 'Program'}
                       </span>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                      {courses.map(crs => {
+                      {filteredCourses.map(crs => {
                         const isSelected = selectedCourseId === crs.course_id;
                         return (
                           <button
@@ -1100,9 +1581,15 @@ export default function App() {
                               <span className={isDark ? 'text-slate-400' : 'text-slate-600'}>
                                 👥 {crs.student_count} Students
                               </span>
-                              <span className={`font-semibold ${crs.rooms_required > 1 ? 'text-purple-400' : 'text-emerald-500'}`}>
-                                {crs.rooms_required > 1 ? `⚡ ${crs.rooms_required} Rooms Auto-Set` : '🏛️ 1 Room'}
-                              </span>
+                              {crs.has_deficit ? (
+                                <span className="font-bold text-rose-500 animate-pulse text-[11px]">
+                                  ⚠️ Deficit Missing
+                                </span>
+                              ) : (
+                                <span className="font-semibold text-emerald-400 flex items-center gap-1 text-[11px]">
+                                  <span>{crs.allocated_room_names?.length ? crs.allocated_room_names.map((n: string) => n.split(' (')[0]).join(', ') : 'Allocated'}</span>
+                                </span>
+                              )}
                             </div>
                           </button>
                         );
@@ -1124,6 +1611,7 @@ export default function App() {
                             {activeCourse.sections.map((sec: any, idx: number) => {
                               const secId = sec.section_id || activeCourse.section_ids?.[idx] || `${activeCourse.course_id}_SEC${idx}`;
                               const isSecSelected = selectedSectionId === secId;
+                              const isSecDeficit = !!sec.has_deficit;
                               return (
                                 <button
                                   key={secId}
@@ -1131,38 +1619,31 @@ export default function App() {
                                     setSelectedSectionId(secId);
                                     setSelectedEntityId(secId);
                                   }}
-                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${isSecSelected
-                                    ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
-                                    : isDark
-                                      ? 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
-                                      : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
-                                    }`}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
+                                    isSecDeficit
+                                      ? 'bg-rose-950/40 border-rose-500 text-rose-300'
+                                      : isSecSelected
+                                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                                        : isDark
+                                          ? 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
+                                          : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                                  }`}
                                 >
-                                  <span>{sec.section_name} ({sec.student_count || sec.students || (activeCourse.student_count / 2)} seats)</span>
-                                  <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${isSecSelected ? 'bg-indigo-700 text-white' : isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-600'
-                                    }`}>
-                                    {sec.allocated_room_name || sec.room_name || 'Room Assigned'}
+                                  <span>{sec.section_name} ({sec.student_count || sec.students || Math.ceil(activeCourse.student_count / (activeCourse.rooms_required || 1))} seats)</span>
+                                  <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${
+                                    isSecDeficit
+                                      ? 'bg-rose-900 text-white'
+                                      : isSecSelected
+                                        ? 'bg-indigo-700 text-white'
+                                        : isDark
+                                          ? 'bg-slate-800 text-emerald-400 border border-emerald-500/20'
+                                          : 'bg-slate-200 text-emerald-700'
+                                  }`}>
+                                    {sec.has_deficit ? '⚠️ Deficit' : `🏛️ ${sec.allocated_room_name || sec.room_name || 'Room Allocated'}`}
                                   </span>
                                 </button>
                               );
                             })}
-                            {activeCourse.sections.length > 1 && (
-                              <button
-                                onClick={() => {
-                                  setSelectedSectionId('ALL');
-                                  setSelectedEntityId(activeCourse.course_id);
-                                }}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer border ${selectedSectionId === 'ALL'
-                                  ? 'bg-purple-600 text-white border-purple-500 shadow-sm'
-                                  : isDark
-                                    ? 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
-                                    : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
-                                  }`}
-                              >
-                                <span>Combined Master View</span>
-                                <span className="text-[10px] px-1 py-0.2 rounded bg-purple-700/80 text-white">All</span>
-                              </button>
-                            )}
                           </div>
                         ) : (
                           <span className="text-xs font-semibold text-slate-400">Single Section Cohort</span>
@@ -1178,58 +1659,18 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Active Course & Enrolled Subjects Detailed Card */}
-                  {activeCourse && (
-                    <div className={`p-4 rounded-xl border transition ${isDark ? 'bg-indigo-950/20 border-indigo-500/30' : 'bg-indigo-50/70 border-indigo-200'
-                      }`}>
-                      <div className="flex flex-wrap items-center justify-between gap-3 mb-2.5">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h3 className={`text-base font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                              {activeCourse.course_name} (Semester {activeCourse.semester})
-                            </h3>
-                            <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-                              {activeCourse.department}
-                            </span>
-                          </div>
-                          <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                            {activeCourse.description || `Active curriculum timetable for ${activeCourse.course_name}`}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-xs font-bold text-emerald-500">
-                            {activeCourse.student_count} Enrolled Students
-                          </div>
-                          <div className={`text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                            Allotted: {activeCourse.allocated_room_names?.join(', ') || 'Smart Lecture Halls'}
-                          </div>
-                        </div>
+                  {/* Deficit Alert if any room missing */}
+                  {(campusDeficits.length > 0 || courses.some(c => c.has_deficit)) && (
+                    <div className="p-3 rounded-xl border flex items-center justify-between gap-3 bg-rose-950/50 border-rose-800 text-rose-200 shadow-md">
+                      <div className="flex items-center gap-2.5 text-xs">
+                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                        <span>
+                          <strong>CLASSROOM DEFICIT DETECTED:</strong> Campus has insufficient physical classrooms to satisfy 1-room-per-course exclusivity. Existing locked rooms (such as Hall 101) cannot and will not be shared.
+                        </span>
                       </div>
-
-                      {/* Enrolled Subjects List */}
-                      <div>
-                        <div className={`text-[11px] font-bold uppercase tracking-wider mb-1.5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                          Enrolled Subjects under this Timetable:
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {(activeCourse.subjects || []).map((sub: any) => (
-                            <div
-                              key={sub.subject_code}
-                              className={`px-2.5 py-1.5 rounded-lg border text-xs flex items-center gap-2 ${isDark ? 'bg-slate-900/90 border-slate-700/80 text-slate-200' : 'bg-white border-slate-200 text-slate-800 shadow-2xs'
-                                }`}
-                            >
-                              <span className="font-mono font-bold text-indigo-400">{sub.subject_code}</span>
-                              <span className="font-medium truncate max-w-xs">{sub.subject_name}</span>
-                              <span className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${sub.subject_type === 'LAB' || sub.subject_type === 'PRACTICAL'
-                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                                }`}>
-                                {sub.weekly_sessions || 3}h/wk
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-rose-600 text-white shrink-0">
+                        DEFICIT ERROR
+                      </span>
                     </div>
                   )}
                 </div>
@@ -1265,70 +1706,6 @@ export default function App() {
                   </select>
                 </div>
               )}
-
-              {/* Curriculum Category Legend & Soft Metrics */}
-              <div className="no-print grid grid-cols-1 lg:grid-cols-12 gap-4">
-                <div className={`lg:col-span-6 border rounded-xl p-4 flex flex-col justify-between transition ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-                  }`}>
-                  <div>
-                    <span className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 mb-2.5 ${isDark ? 'text-slate-400' : 'text-slate-600'
-                      }`}>
-                      <Layers className="w-3.5 h-3.5 text-indigo-500" />
-                      Curriculum & Course Categories
-                    </span>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      {[
-                        { cat: 'MAJOR', name: 'Major Core (DSC)', credits: '4 Cr', color: isDark ? 'border-blue-500/40 bg-blue-950/30 text-blue-300' : 'border-blue-200 bg-blue-50 text-blue-700' },
-                        { cat: 'MINOR', name: 'Minor Basket (PARALLEL)', credits: '4 Cr', color: isDark ? 'border-purple-500/40 bg-purple-950/30 text-purple-300' : 'border-purple-200 bg-purple-50 text-purple-700' },
-                        { cat: 'SEC', name: 'SEC Skill Lab (2h)', credits: '2 Cr', color: isDark ? 'border-emerald-500/40 bg-emerald-950/30 text-emerald-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700' },
-                        { cat: 'AEC', name: 'AEC Environment', credits: '2 Cr', color: isDark ? 'border-amber-500/40 bg-amber-950/30 text-amber-300' : 'border-amber-200 bg-amber-50 text-amber-700' },
-                        { cat: 'VAC', name: 'VAC Digital Ethics', credits: '2 Cr', color: isDark ? 'border-orange-500/40 bg-orange-950/30 text-orange-300' : 'border-orange-200 bg-orange-50 text-orange-700' },
-                        { cat: 'TEACHING_PRACTICE', name: 'School Internship (2h)', credits: '4 Cr', color: isDark ? 'border-rose-500/40 bg-rose-950/30 text-rose-300' : 'border-rose-200 bg-rose-50 text-rose-700' },
-                      ].map(item => (
-                        <div key={item.cat} className={`p-2 rounded-lg border ${item.color} flex flex-col justify-between`}>
-                          <span className="text-xs font-bold leading-tight">{item.name}</span>
-                          <span className="text-[10px] opacity-75 font-mono mt-1">{item.credits}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className={`lg:col-span-6 border rounded-xl p-4 flex flex-col justify-between transition ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-                  }`}>
-                  <span className={`text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 mb-2.5 ${isDark ? 'text-slate-400' : 'text-slate-600'
-                    }`}>
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                    Quality Scorecard (Soft Constraints CON-S)
-                  </span>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                    <div className={`rounded-lg p-2.5 text-center border ${isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-                      }`}>
-                      <div className="text-base font-black text-emerald-500">{metrics?.distribution_excess ?? 0}</div>
-                      <div className={`text-[11px] font-medium ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Spread Excess</div>
-                      <div className={`text-[9px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>CON-S-008 (0 = Perfect)</div>
-                    </div>
-                    <div className={`rounded-lg p-2.5 text-center border ${isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-                      }`}>
-                      <div className="text-base font-black text-emerald-500">{metrics?.faculty_gaps ?? 0} <span className="text-[10px] font-normal">hrs</span></div>
-                      <div className={`text-[11px] font-medium ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Faculty Idle Gaps</div>
-                      <div className={`text-[9px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>CON-S-003</div>
-                    </div>
-                    <div className={`rounded-lg p-2.5 text-center border ${isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-                      }`}>
-                      <div className="text-base font-black text-emerald-500">{metrics?.student_gaps ?? 0} <span className="text-[10px] font-normal">hrs</span></div>
-                      <div className={`text-[11px] font-medium ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Student Idle Gaps</div>
-                      <div className={`text-[9px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>CON-S-004</div>
-                    </div>
-                    <div className={`rounded-lg p-2.5 text-center border ${isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-                      }`}>
-                      <div className="text-base font-black text-indigo-500">{metrics?.composite_score ?? 0}</div>
-                      <div className={`text-[11px] font-medium ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Objective Score</div>
-                      <div className={`text-[9px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Solved in {solveTime.toFixed(2)}s</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
 
               {/* Interactive Move & Action Bar */}
               <div className={`no-print flex items-center justify-between border px-4 py-2.5 rounded-xl transition ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
@@ -1367,23 +1744,23 @@ export default function App() {
               {/* Master Timetable Grid */}
               <div className={`border rounded-xl overflow-hidden shadow-2xl transition ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-sm'
                 }`}>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
+                <div className="w-full overflow-hidden">
+                  <table className="w-full text-left border-collapse table-fixed">
                     <thead>
                       <tr className={`border-b text-xs font-semibold ${isDark ? 'border-slate-800 bg-slate-900/90 text-slate-400' : 'border-slate-200 bg-slate-100 text-slate-700'
                         }`}>
-                        <th className={`py-3 px-4 w-32 border-r ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>Day</th>
+                        <th className={`py-3 px-2 w-20 text-center border-r ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>Day</th>
                         {periods.map((per, idx) => (
                           <React.Fragment key={per.p}>
-                            {idx === 3 && (
-                              <th className={`py-3 px-2 w-10 text-center bg-amber-500/5 text-amber-500/80 border-r text-[10px] uppercase font-bold tracking-widest writing-vertical ${isDark ? 'border-slate-800' : 'border-slate-200'
+                            {lunchBreakAfter > 0 && idx === lunchBreakAfter && (
+                              <th className={`py-3 px-1 w-8 text-center bg-amber-500/5 text-amber-500/80 border-r text-[10px] uppercase font-bold tracking-widest writing-vertical ${isDark ? 'border-slate-800' : 'border-slate-200'
                                 }`}>
                                 Lunch
                               </th>
                             )}
-                            <th className={`py-3 px-3 text-center border-r min-w-[145px] ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
-                              <div>{per.label}</div>
-                              <div className={`text-[10px] font-normal ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{per.time}</div>
+                            <th className={`py-3 px-1.5 text-center border-r ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
+                              <div className="text-xs font-bold">{per.label}</div>
+                              <div className={`text-[10px] font-normal truncate ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{per.time}</div>
                             </th>
                           </React.Fragment>
                         ))}
@@ -1392,7 +1769,7 @@ export default function App() {
                     <tbody className={`divide-y text-xs ${isDark ? 'divide-slate-800' : 'divide-slate-200'}`}>
                       {days.map((dayName, dIdx) => (
                         <tr key={dayName} className={`transition ${isDark ? 'hover:bg-slate-900/40' : 'hover:bg-slate-50'}`}>
-                          <td className={`py-4 px-4 font-bold border-r ${isDark ? 'text-slate-300 bg-slate-900/30 border-slate-800' : 'text-slate-800 bg-slate-50 border-slate-200'
+                          <td className={`py-4 px-2 font-bold text-center border-r text-xs ${isDark ? 'text-slate-300 bg-slate-900/30 border-slate-800' : 'text-slate-800 bg-slate-50 border-slate-200'
                             }`}>
                             {dayName}
                           </td>
@@ -1404,8 +1781,8 @@ export default function App() {
 
                             return (
                               <React.Fragment key={per.p}>
-                                {pIdx === 3 && (
-                                  <td className={`border-r text-center text-slate-500 text-[10px] ${isDark ? 'bg-amber-500/5 border-slate-800' : 'bg-amber-500/10 border-slate-200'
+                                {lunchBreakAfter > 0 && pIdx === lunchBreakAfter && (
+                                  <td className={`border-r text-center text-slate-500 text-[10px] w-8 ${isDark ? 'bg-amber-500/5 border-slate-800' : 'bg-amber-500/10 border-slate-200'
                                     }`}>
                                     ☕
                                   </td>
@@ -1418,7 +1795,7 @@ export default function App() {
                                       handleSessionClick(cellPlacements[0].instance_id);
                                     }
                                   }}
-                                  className={`p-1.5 border-r align-top transition relative min-h-[120px] h-32 ${isDark ? 'border-slate-800' : 'border-slate-200'
+                                  className={`p-1 border-r align-top transition relative min-h-[110px] h-28 ${isDark ? 'border-slate-800' : 'border-slate-200'
                                     } ${isValidTarget
                                       ? 'bg-emerald-500/20 hover:bg-emerald-500/30 ring-2 ring-emerald-400 ring-inset cursor-pointer'
                                       : isSelectedSession
@@ -1427,7 +1804,7 @@ export default function App() {
                                     }`}
                                 >
                                   {cellPlacements.length > 0 ? (
-                                    <div className="h-full flex flex-col gap-1.5 overflow-y-auto">
+                                    <div className="h-full flex flex-col gap-1 overflow-y-auto">
                                       {cellPlacements.map(cellPlacement => {
                                         const req = reqMap.get(cellPlacement.requirement_id);
                                         const style = getNEPCategoryStyle(req?.nep_category);
@@ -1443,42 +1820,42 @@ export default function App() {
                                               e.stopPropagation();
                                               handleSessionClick(cellPlacement.instance_id);
                                             }}
-                                            className={`rounded-lg p-2 flex flex-col justify-between shadow-xs border transition cursor-pointer ${style.bg} ${isThisSelected ? 'ring-2 ring-indigo-500 ring-inset' : ''
+                                            className={`rounded-lg p-1.5 flex flex-col justify-between shadow-xs border transition cursor-pointer ${style.bg} ${isThisSelected ? 'ring-2 ring-indigo-500 ring-inset' : ''
                                               }`}
                                           >
                                             <div>
-                                              <div className="flex items-center justify-between gap-1 mb-1">
-                                                <span className="font-extrabold text-xs tracking-tight">
+                                              <div className="flex items-center justify-between gap-1 mb-0.5">
+                                                <span className="font-extrabold text-[11px] tracking-tight">
                                                   {req?.course_id}
                                                 </span>
-                                                <div className="flex items-center gap-1">
-                                                  {selectedSectionId === 'ALL' && (isSecA || isSecB) && (
-                                                    <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded font-mono ${isSecA ? 'bg-indigo-600 text-white' : 'bg-purple-600 text-white'
+                                                <div className="flex items-center gap-0.5">
+                                                  {(isSecA || isSecB) && (
+                                                    <span className={`text-[8px] font-bold px-1 py-0.2 rounded font-mono ${isSecA ? 'bg-indigo-600 text-white' : 'bg-purple-600 text-white'
                                                       }`}>
                                                       {isSecA ? 'Sec A' : 'Sec B'}
                                                     </span>
                                                   )}
-                                                  <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border uppercase flex items-center gap-0.5 ${style.badge}`}>
-                                                    <CategoryIcon className="w-2.5 h-2.5" />
+                                                  <span className={`text-[8px] font-bold px-1 py-0.2 rounded border uppercase flex items-center gap-0.5 ${style.badge}`}>
+                                                    <CategoryIcon className="w-2 h-2" />
                                                     {style.label}
                                                   </span>
                                                 </div>
                                               </div>
-                                              <div className="text-[11px] font-semibold leading-tight line-clamp-1">
+                                              <div className="text-[10px] font-semibold leading-tight truncate">
                                                 {req?.course_name}
                                               </div>
                                             </div>
 
-                                            <div className={`mt-1.5 pt-1 border-t text-[10px] space-y-0.5 ${isDark ? 'border-slate-800/60 text-slate-400' : 'border-slate-200 text-slate-600'
+                                            <div className={`mt-1 pt-0.5 border-t text-[9px] space-y-0.5 ${isDark ? 'border-slate-800/60 text-slate-400' : 'border-slate-200 text-slate-600'
                                               }`}>
                                               <div className={`flex items-center gap-1 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-                                                <DoorOpen className="w-3 h-3 opacity-70 shrink-0" />
+                                                <DoorOpen className="w-2.5 h-2.5 opacity-70 shrink-0" />
                                                 <span className="truncate">
                                                   {cellPlacement.assigned_room_id ? roomMap.get(cellPlacement.assigned_room_id)?.name : 'Virtual'}
                                                 </span>
                                               </div>
                                               <div className={`flex items-center gap-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                                                <Users className="w-3 h-3 opacity-70 shrink-0" />
+                                                <Users className="w-2.5 h-2.5 opacity-70 shrink-0" />
                                                 <span className="truncate">
                                                   {cellPlacement.assigned_faculty_ids.map(id => facultyMap.get(id)?.name).join(', ')}
                                                 </span>
@@ -1489,8 +1866,8 @@ export default function App() {
                                       })}
                                     </div>
                                   ) : isValidTarget ? (
-                                    <div className="h-full rounded-lg border-2 border-dashed border-emerald-400/60 flex flex-col items-center justify-center text-center p-2 text-emerald-400 text-xs font-semibold">
-                                      <Move className="w-4 h-4 mb-1 animate-bounce" />
+                                    <div className="h-full rounded-lg border-2 border-dashed border-emerald-400/60 flex flex-col items-center justify-center text-center p-1 text-emerald-400 text-xs font-semibold">
+                                      <Move className="w-4 h-4 mb-0.5 animate-bounce" />
                                       Move Here
                                     </div>
                                   ) : (
@@ -1587,11 +1964,9 @@ export default function App() {
               {/* Sub Navigation Tabs */}
               <div className={`flex flex-wrap items-center gap-2 border-b pb-2 ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
                 {[
-                  { id: 'COURSES', label: '1. Course Offerings Master List', icon: BookOpen, count: snapshot?.requirements.length },
-                  { id: 'FACULTY', label: '2. Faculty & Availability Constraints', icon: Users, count: snapshot?.faculty.length },
-                  { id: 'ROOMS', label: '3. Classrooms & Specialized Labs', icon: DoorOpen, count: snapshot?.rooms.length },
-                  { id: 'STUDENT_PATHWAY', label: '4. Student Elective Pathway Simulator', icon: UserCheck },
-                  { id: 'CSV', label: '5. Bulk CSV Ingestion & Templates', icon: Upload },
+                  { id: 'FACULTY', label: '1. Faculty & Availability Constraints', icon: Users, count: snapshot?.faculty.length },
+                  { id: 'ROOMS', label: '2. Classrooms & Specialized Labs', icon: DoorOpen, count: snapshot?.rooms.length },
+                  { id: 'CSV', label: '3. Bulk CSV Ingestion & Templates', icon: Upload },
                 ].map(tab => {
                   const TabIcon = tab.icon;
                   return (
@@ -1619,113 +1994,7 @@ export default function App() {
               </div>
 
               {/* ------------------------------------------------------------- */}
-              {/* TAB 1: COURSES & CURRICULUM INPUT                             */}
-              {/* ------------------------------------------------------------- */}
-              {inputStudioTab === 'COURSES' && (
-                <div className="space-y-4">
-                  {/* Quick Link to Curriculum Studio Banner */}
-                  <div className={`p-4 rounded-xl border flex flex-wrap items-center justify-between gap-3 ${isDark ? 'bg-indigo-950/20 border-indigo-500/30' : 'bg-indigo-50/70 border-indigo-200'
-                    }`}>
-                    <div className="flex items-center gap-2.5">
-                      <GraduationCap className="w-5 h-5 text-indigo-500 shrink-0" />
-                      <div>
-                        <h4 className={`text-xs font-bold ${isDark ? 'text-indigo-200' : 'text-indigo-900'}`}>
-                          Looking for Degree Programs, Year-Wise Semesters & Subject Trees?
-                        </h4>
-                        <p className={`text-[11px] ${isDark ? 'text-indigo-300/80' : 'text-indigo-700/80'}`}>
-                          Manage hierarchical degree programs (1st, 2nd, 3rd, 4th Year) and semester-wise mappings in the dedicated Curriculum Studio.
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setMainView('CURRICULUM')}
-                      className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-sm flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <span>Open Curriculum Studio</span>
-                      <span>&rarr;</span>
-                    </button>
-                  </div>
-
-                  <div className={`flex justify-between items-center p-4 rounded-xl border transition ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-                    }`}>
-                    <div>
-                      <h3 className={`font-bold text-sm ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>Registered Course Offerings</h3>
-                      <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Total {snapshot?.requirements.length} requirements registered across academic programs.</p>
-                    </div>
-                    <button
-                      onClick={() => setShowAddCourseModal(true)}
-                      className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-md flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Register New Course Offering</span>
-                    </button>
-                  </div>
-
-                  <div className={`border rounded-xl overflow-hidden shadow-lg transition ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-                    }`}>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead>
-                          <tr className={`border-b font-semibold ${isDark ? 'border-slate-800 bg-slate-900/90 text-slate-400' : 'border-slate-200 bg-slate-50 text-slate-600'
-                            }`}>
-                            <th className="py-3 px-4">Code</th>
-                            <th className="py-3 px-4">Course Title</th>
-                            <th className="py-3 px-3">Program</th>
-                            <th className="py-3 px-3">Curriculum Category</th>
-                            <th className="py-3 px-3 text-center">Credits</th>
-                            <th className="py-3 px-3 text-center">Sessions/Wk</th>
-                            <th className="py-3 px-3">Facility</th>
-                            <th className="py-3 px-4">Eligible Teachers</th>
-                            <th className="py-3 px-3 text-center">Action</th>
-                          </tr>
-                        </thead>
-                        <tbody className={`divide-y ${isDark ? 'divide-slate-800' : 'divide-slate-200'}`}>
-                          {(snapshot?.requirements || []).map(r => {
-                            const style = getNEPCategoryStyle(r.nep_category);
-                            return (
-                              <tr key={r.requirement_id} className={`transition ${isDark ? 'hover:bg-slate-900/40' : 'hover:bg-slate-50'}`}>
-                                <td className={`py-3 px-4 font-mono font-bold ${isDark ? 'text-indigo-300' : 'text-indigo-600'}`}>{r.course_id}</td>
-                                <td className={`py-3 px-4 font-semibold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>{r.course_name}</td>
-                                <td className="py-3 px-3">
-                                  <span className={`px-2 py-0.5 rounded font-mono text-[10px] ${isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'
-                                    }`}>
-                                    {r.program_type}
-                                  </span>
-                                </td>
-                                <td className="py-3 px-3">
-                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold border uppercase ${style.badge}`}>
-                                    {r.nep_category}
-                                  </span>
-                                </td>
-                                <td className={`py-3 px-3 text-center font-mono font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{r.credits}</td>
-                                <td className="py-3 px-3 text-center font-mono">
-                                  {r.sessions_per_week} x {r.duration_slots}h
-                                </td>
-                                <td className={`py-3 px-3 text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{r.room_type_id}</td>
-                                <td className={`py-3 px-4 text-[11px] truncate max-w-[200px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                                  {r.eligible_faculty_ids.map(id => facultyMap.get(id)?.name).join(', ')}
-                                </td>
-                                <td className="py-3 px-3 text-center">
-                                  <button
-                                    onClick={() => handleDeleteCourse(r.requirement_id)}
-                                    title="Delete Course"
-                                    className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 transition cursor-pointer"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* ------------------------------------------------------------- */}
-              {/* TAB 2: FACULTY & AVAILABILITY CONSTRAINTS                      */}
+              {/* TAB 1: FACULTY & AVAILABILITY CONSTRAINTS                      */}
               {/* ------------------------------------------------------------- */}
               {inputStudioTab === 'FACULTY' && (
                 <div className="space-y-4">
@@ -1787,7 +2056,7 @@ export default function App() {
                                       : isDark ? 'bg-slate-950 text-slate-400 hover:bg-slate-800' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                                       }`}
                                   >
-                                    {per === 3 ? '☕' : `P${per + 1}`}
+                                    {periods[per]?.label || `P${per + 1}`}
                                   </button>
                                 );
                               })}
@@ -1801,7 +2070,7 @@ export default function App() {
               )}
 
               {/* ------------------------------------------------------------- */}
-              {/* TAB 3: ROOMS & SPECIALIZED LABS                               */}
+              {/* TAB 2: ROOMS & SPECIALIZED LABS                               */}
               {/* ------------------------------------------------------------- */}
               {inputStudioTab === 'ROOMS' && (
                 <div className="space-y-4">
@@ -1838,72 +2107,7 @@ export default function App() {
               )}
 
               {/* ------------------------------------------------------------- */}
-              {/* TAB 4: STUDENT ELECTIVE PATHWAY SIMULATOR                      */}
-              {/* ------------------------------------------------------------- */}
-              {inputStudioTab === 'STUDENT_PATHWAY' && (
-                <div className="space-y-4">
-                  <div className={`border rounded-2xl p-5 space-y-3 transition ${isDark ? 'bg-slate-900/60 border-purple-500/30' : 'bg-white border-purple-200 shadow-xs'
-                    }`}>
-                    <div className="flex items-center gap-2">
-                      <div className={`p-2 rounded-xl ${isDark ? 'bg-purple-500/20 text-purple-300' : 'bg-purple-50 text-purple-600'}`}>
-                        <UserCheck className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <h3 className={`font-bold text-sm ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>Individual Student Elective Pathway Simulator</h3>
-                        <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                          Students select individual elective and minor courses from multidisciplinary baskets. Select a cohort and a chosen minor to preview that student's personalized, clash-free schedule.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                      <div>
-                        <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>Select Student Section / Major Cohort:</label>
-                        <select
-                          value={pathwayGroup}
-                          onChange={(e) => setPathwayGroup(e.target.value)}
-                          className={`w-full text-xs rounded-xl p-2.5 transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                            }`}
-                        >
-                          <option value="GRP_FYUP_SEC_A">FYUP Section A (Major: Computer Science)</option>
-                          <option value="GRP_FYUP_SEC_B">FYUP Section B (Major: Modern Literature & Humanities)</option>
-                          <option value="GRP_ITEP_SEM5">ITEP B.Sc.-B.Ed. (Semester 5)</option>
-                          <option value="GRP_BED_SEM3">B.Ed. Teacher Education (Semester 3)</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>Student's Chosen Multidisciplinary Minor Basket Course:</label>
-                        <select
-                          value={pathwayMinor}
-                          onChange={(e) => setPathwayMinor(e.target.value)}
-                          className={`w-full text-xs rounded-xl p-2.5 transition border focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer ${isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                            }`}
-                        >
-                          <option value="REQ_MINOR_ECO">Principles of Microeconomics (MIN-ECO-201) — Dr. Amartya Sen</option>
-                          <option value="REQ_MINOR_MATH">Applied Linear Algebra (MIN-MTH-201) — Dr. Srinivasa Ramanujan</option>
-                          <option value="REQ_MINOR_PSY">Cognitive Psychology (MIN-PSY-201) — Dr. B.F. Skinner</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Pathway Summary */}
-                  <div className={`p-4 rounded-xl border flex justify-between items-center text-xs transition ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
-                    }`}>
-                    <span className={isDark ? 'text-slate-300' : 'text-slate-700'}>
-                      Showing <strong>{pathwayPlacements.length} weekly sessions</strong> for student choice pathway.
-                    </span>
-                    <span className={`px-2.5 py-1 rounded font-bold border ${isDark ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                      }`}>
-                      0 Clashes Guaranteed (VAL-004 & CON-H-011)
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* ------------------------------------------------------------- */}
-              {/* TAB 5: CSV INGESTION & TEMPLATES                              */}
+              {/* TAB 3: CSV INGESTION & TEMPLATES                              */}
               {/* ------------------------------------------------------------- */}
               {inputStudioTab === 'CSV' && (
                 <div className="space-y-4">
@@ -2061,6 +2265,19 @@ export default function App() {
                 setViewType('GROUP');
                 if (progId) handleSelectProgram(progId);
                 if (courseId) handleSelectCourse(courseId);
+              }}
+              onSettingsSaved={(newSettings) => {
+                if (newSettings?.periods_schedule && newSettings.periods_schedule.length > 0) {
+                  setPeriods(newSettings.periods_schedule.map((ps: any) => ({
+                    p: ps.p,
+                    label: ps.label || `P${ps.p + 1}`,
+                    time: `${ps.start_time || ''} - ${ps.end_time || ''}`,
+                    is_break: ps.is_break,
+                  })));
+                }
+                if (newSettings?.lunch_break_after !== undefined) {
+                  setLunchBreakAfter(newSettings.lunch_break_after);
+                }
               }}
             />
           )}

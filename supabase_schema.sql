@@ -119,6 +119,19 @@ CREATE TABLE IF NOT EXISTS public.institution_settings (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 9. Institutional User Accounts & RBAC Roles (Admin, Coordinator, Faculty)
+CREATE TABLE IF NOT EXISTS public.app_users (
+    user_id TEXT PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL DEFAULT '123',
+    name TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('ADMIN', 'COORDINATOR', 'FACULTY')),
+    department TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ACTIVE',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- ============================================================================
 -- ROW LEVEL SECURITY (RLS) POLICIES
 -- Enables direct synchronization using Publishable Key / Anon Key
@@ -132,6 +145,11 @@ ALTER TABLE public.student_groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.curriculum_subjects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.timetable_placements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.institution_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.app_users ENABLE ROW LEVEL SECURITY;
+
+-- Allow unrestricted read & write for synchronized academic operations
+DROP POLICY IF EXISTS "Public access on app_users" ON public.app_users;
+CREATE POLICY "Public access on app_users" ON public.app_users FOR ALL USING (true) WITH CHECK (true);
 
 -- Allow unrestricted read & write for synchronized academic operations
 DROP POLICY IF EXISTS "Public access on academic_programs" ON public.academic_programs;
